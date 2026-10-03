@@ -35,6 +35,7 @@
 
 ## 모델 연결
 
+- [OpenAI 모델 목록](https://developers.openai.com/api/docs/models): 기본 모델 `gpt-6-luna`, `gpt-6.1-sol`
 - [Sign in with ChatGPT — 오픈소스 앱용 가이드](https://developers.openai.com/siwc/token-sharing-open-source)
 - [Sign in with ChatGPT DevKit](https://github.com/openai/sign-in-with-chatgpt-devkit): `@siwc/local`, `@siwc/react`. **비상업 라이선스**
 - Anthropic: Free/Pro/Max 구독 OAuth를 서드파티 앱과 Agent SDK에서 쓰는 것은 허용되지 않는다. API 키를 사용한다.

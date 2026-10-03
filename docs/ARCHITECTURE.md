@@ -3,7 +3,7 @@
 ## 1. 전체 흐름
 
 ```
- 사용자 메시지 · 시계 틱 · 활동 틱 · Reasoner 완료 · 예산 변화 · 귀가/외출
+ 사용자 메시지 · 주의 신호 · 시계 틱 · 활동 틱 · Reasoner 완료 · 예산 변화
                                │
                                ▼
                     ┌──────────────────────┐
@@ -44,7 +44,9 @@
 interface RouterVerdict {
   salience: number;             // 0..1 얼마나 신경 쓸 일인가
   affect: { valence: number; arousal: number };  // 감정 자극 (delta)
-  intent: "chat" | "question" | "request" | "greeting" | "farewell" | "tease" | "other";
+  intent: "chat" | "question" | "request" | "greeting" | "farewell" | "ack" | "tease" | "naming" | "other";
+  closure: number;              // 0..1 대화가 끝났을 가능성 ("ㅇㅋ", "ㄱㅅ", "잘자", 단독 "ㅋㅋ" 등)
+  leaving: boolean;             // "나갔다 올게" 류 → 부재로 전환
   unknowns: string[];           // 낯선 단어 / 개인 맥락 후보
   stakes: "low" | "high" | "critical";  // 반사 답변 후 숙고가 필요한가
   needsReasoner: "no" | "maybe" | "yes";
@@ -64,7 +66,8 @@ interface RouterVerdict {
 
 ```ts
 type TalkerAction =
-  | { type: "say"; bubbles: string[]; provisional?: boolean }  // provisional = 반사 답변
+  | { type: "say"; bubbles: string[]; provisional?: boolean; expectsReply?: boolean }
+                                                                 // provisional = 반사 답변, expectsReply = 질문을 던짐
   | { type: "think"; text: string; motivation: number }         // 속생각 → 할 말 큐
   | { type: "ask"; about: string }                               // 모르는 것 사다리: 질문
   | { type: "guess"; about: string; guess: string }              // 모르는 것 사다리: 추측
@@ -72,6 +75,8 @@ type TalkerAction =
   | { type: "revise"; ref: string; bubbles: string[] }           // 반사 답변 수정
   | { type: "plan_activity"; kind: ActivityKind; topic?: string; minutes: number }
   | { type: "remember"; kind: MemoryKind; content: string; importance: number }
+  | { type: "accept_name"; name: string } | { type: "refuse_name"; reason: string }
+  | { type: "set_address"; addressAs: string }                    // 사용자를 부르는 호칭
   | { type: "silence" };
 ```
 
@@ -113,7 +118,8 @@ interface Clock {
 | 이벤트 | 발생 |
 |---|---|
 | `user_message` | 사용자 입력 |
-| `user_away` / `user_return` | 부재 감지 |
+| `attention_signal` | 채널에서 온 원시 신호: 창 보임/숨김, 포커스, 채팅창 클릭, 타이핑 |
+| `attention_change` | 주의 상태 전이 (§5). `user_return`도 여기서 나온다 |
 | `heartbeat` | 주기적 (예: 10~30분, 지터 포함) |
 | `activity_tick` | 활동 블록 내부의 드문드문 실행 |
 | `activity_end` | 활동 종료 (완료, 포기, 중단) |
@@ -129,6 +135,7 @@ interface MindState {
   energy: number;          // 0..1, 예산 잔량 × 하루 리듬
   curiosity: number;       // 0..1
   boredom: number;         // 0..1, 같은 걸 반복하면 오름
+  attention: "away" | "around" | "attending" | "engaged" | "winding_down";  // §5
   activity: Activity | null;
   pendingConsults: ConsultJob[];
   speechQueue: Thought[];  // 동기 점수 순, 시간이 지나면 감쇠
@@ -136,7 +143,26 @@ interface MindState {
 }
 ```
 
-## 5. 기억
+## 5. 주의 (attention)
+
+사용자가 지금 이쪽을 보고 있는지 단순한 상태 머신으로 추적한다. 카메라 없이 UI 신호만 쓴다.
+
+```
+away ⇄ around ⇄ attending (쳐다봄) → engaged (대화 중) → winding_down → around (하던 일로 복귀)
+```
+
+| 상태 | 뜻 |
+|---|---|
+| `away` | 자리에 없음. 혼자 생활하고, 할 말은 귀가할 때를 위해 쌓아둔다 |
+| `around` | 창은 열려 있지만 이쪽을 안 봄. 자기 할 일을 한다 |
+| `attending` | 채팅창을 누름 → 쳐다본다 |
+| `engaged` | 대화 중. 활동은 멈춘다 |
+| `winding_down` | 대화가 끝난 것 같음. 15초 동안 말이 없으면 하던 일로 돌아간다 |
+
+- 전이 판정은 **하네스가 한다.** LLM 호출이 없다. Router의 `closure`와 `leaving`, Talker의 `expectsReply`만 입력으로 쓴다.
+- 상세 알고리즘과 시간 값은 [MECHANISMS.md §15](MECHANISMS.md#15-주의--쳐다보기-대화-종료-부재)에 있다.
+
+## 6. 기억
 
 SQLite. 종류별로 테이블을 나누고 수명을 다르게 준다.
 
@@ -145,9 +171,9 @@ SQLite. 종류별로 테이블을 나누고 수명을 다르게 준다.
 | 작업 기억 | `scratch` | 방금 읽은 기사 제목 | 분~시간, 자동 만료 |
 | 에피소드 | `episodes` | 오늘 사용자가 일찍 옴 | 일~월, 감쇠 |
 | 지식 | `knowledge` | 신조어 뜻 (출처, 날짜, 알려준 사람) | 길다, 확신도 있음 |
-| 관계 | `people` | 이 농담 싫어함, 친밀도 | 매우 길다 |
+| 관계 | `people` | 이 농담 싫어함, 친밀도, **호칭과 그 변천** | 매우 길다 |
 | 사용자 취향 | `prefs` | 매운 거 좋아함 (근거 횟수) | 길다, 수정 가능 |
-| 자기 | `self` | 관심사 점수, 경험, 의견, 이름 | 장기 |
+| 자기 | `self` | 관심사 점수, 경험, 의견, **이름(지어준 사람, 날짜, 거절한 후보)** | 장기 |
 
 **강도 = f(중요도, 반복, 최근성)**
 
@@ -161,9 +187,9 @@ SQLite. 종류별로 테이블을 나누고 수명을 다르게 준다.
 2. 강화, 약화, 망각 처리
 3. 관심사 점수 갱신, 지루함 해소
 4. 관계 갱신
-5. 정체성 변화가 있으면 기록 ("3일차: 자기 이름을 정함")
+5. 정체성 변화가 있으면 기록 ("1일차: 이름을 받음 (두 번 거절 후)", "5일차: 심해어 덕후가 됨")
 
-## 6. 활동 시스템
+## 7. 활동 시스템
 
 ```ts
 interface Activity {
@@ -184,14 +210,14 @@ interface Activity {
 
 자세한 내용은 [MECHANISMS.md §4](MECHANISMS.md#4-활동-블록--띄엄띄엄-수행).
 
-## 7. 예산과 체력
+## 8. 예산과 체력
 
 - 계층별로 하루/시간당 호출 상한과 사용량 상한을 둔다. ChatGPT 플랜이면 앱별 주간 상한도 따른다.
 - `energy = 예산 잔량 비율 × 하루 리듬 곡선`
 - 상한 강제는 **하네스가 한다.** 모델은 체력 수치를 보고 연기만 한다.
 - 실제 오류(429, 네트워크)는 UI 시스템 배지로 명확히 띄운다. 캐릭터 대사는 그 위에 덧붙이는 연출이다.
 
-## 8. Provider
+## 9. Provider
 
 ```ts
 interface Provider {
@@ -206,22 +232,29 @@ interface Provider {
 - **Anthropic**: 공식 SDK(`@anthropic-ai/sdk`), API 키. 구독 OAuth는 쓰지 않는다.
 - **로컬**: OpenAI 호환 엔드포인트 (Ollama, llama.cpp, vLLM).
 
-**설정 예시**
+**설정 예시 (기본값)**
 
 ```yaml
+language: ko                 # 대화 언어. prompts/charter.<lang>.md 를 쓴다
 layers:
-  router:   { provider: chatgpt, model: <가장 가벼운 모델> }
-  talker:   { provider: chatgpt, model: <빠른 모델> }
-  reasoner: { provider: chatgpt, model: <추론 모델> }
+  router:   { provider: chatgpt, model: gpt-6-luna,  effort: none }
+  talker:   { provider: chatgpt, model: gpt-6-luna,  effort: low }
+  reasoner: { provider: chatgpt, model: gpt-6.1-sol, effort: medium }   # 숙고 시 high
 budget:
   daily: { router: 600, talker: 200, reasoner: 40 }   # 호출 수, 예시값
-pace: 1.0          # 데모용 배속 (타이핑, 대기 시간)
+attention:                   # MECHANISMS §15
+  attendIdleSec: 20
+  closureIdleSec: 15
+  openIdleSec: 90
+  awayAfterMin: 10
+  greetAfterMin: 30
+pace: 1.0                    # 데모용 배속 (타이핑, 대기 시간)
 quietHours: "02:00-09:00"
 ```
 
-모델 이름은 코드에 박지 않는다. 첫 실행 때 로그인한 계정에서 모델 목록을 조회해 고르게 한다.
+기본 모델은 설정 파일의 기본값일 뿐이다. 첫 실행 때 로그인한 계정에서 모델 목록을 조회하고, 기본 모델이 없으면 고르게 한다.
 
-## 9. UI (v0, 로컬 웹)
+## 10. UI (v0, 로컬 웹)
 
 ```
 ┌──────────────────────────────┬──────────────────────┐
@@ -240,8 +273,23 @@ quietHours: "02:00-09:00"
 - **채팅**: 읽음 표시, 입력 중 표시, 말풍선 분할
 - **속마음**: Router 판정, 속생각, Reasoner 작업, 예산. 토글할 수 있다.
 - **타임라인 / 일기 / 관심사 차트 / 잊힌 기억**
+- 주의 상태가 스프라이트에 반영된다: `attending`이면 쳐다보고, `winding_down`이 끝나면 하던 일로 돌아간다.
 
-## 10. 디렉터리 구조 (예정)
+## 11. 채널 어댑터
+
+```ts
+interface Channel {
+  send(bubbles: string[], opts: { typingMs: number[] }): Promise<void>;
+  showActivity(sprite: string, status: string): void;
+  onMessage(fn: (text: string) => void): void;
+  onAttentionSignal(fn: (sig: AttentionSignal) => void): void;  // 채널마다 신호가 다르다
+}
+```
+
+- v0: 로컬 웹 UI (`visibilitychange`, focus/blur, 입력창 클릭과 포커스, keydown)
+- M6: 디스코드 (멘션과 DM은 `attending`, 타이핑 이벤트, 온라인/자리비움 상태). 급하지 않다.
+
+## 12. 디렉터리 구조 (예정)
 
 ```
 dontdie/
@@ -249,10 +297,11 @@ dontdie/
     core/         # clock, event bus, event log, state, scheduler, budget
     layers/       # router, talker, reasoner
     providers/    # chatgpt, openai, anthropic, local, fake
+    channels/     # web (v0), discord (M6)
     memory/       # sqlite store, retrieval, decay, consolidation
-    mechanisms/   # unknown-ladder, reflex-revise, inner-thoughts, activities, pacing, assistant-ism
+    mechanisms/   # first-meeting, attention, unknown-ladder, reflex-revise, inner-thoughts, activities, pacing, assistant-ism
     ui/           # 로컬 웹 UI
-  prompts/        # 존재 규칙, 계층별 프롬프트
+  prompts/        # 언어별 존재 규칙(charter.<lang>.md), 계층별 프롬프트
   assets/sprites/ # 활동별 이미지
   scenarios/      # 시나리오 테스트 (배속 시계 + fake provider)
   docs/
