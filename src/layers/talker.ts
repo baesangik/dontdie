@@ -1,42 +1,30 @@
-// Talker (자아). 존재 규칙 + 현재 상태 + 대화로 컨텍스트를 만들고, 출력에서 말풍선과 속생각을 꺼낸다.
+// Talker (자아). 존재 규칙 + 대화 + "[지금]" 블록으로 부르고, 출력에서 말풍선, 속생각, 태그를 꺼낸다.
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { ROOT, type Language, type LayerConfig } from "../config.js";
+import type { Language, LayerConfig } from "../config.js";
 import { dayCount, type CharacterState } from "../character/state.js";
+import { loadPrompt, renderTemplate } from "../prompts.js";
 import type { ChatMessage, Provider } from "../providers/types.js";
 
+export { renderTemplate };
+
 export const MAX_BUBBLES = 4;
+export const FACES = ["neutral", "happy", "sad", "surprised", "embarrassed", "annoyed", "thinking", "sleepy"] as const;
+export type Face = (typeof FACES)[number];
 
 export interface TalkerOutput {
   thought?: string;
   bubbles: string[];
+  face?: Face;
   acceptName?: string;
   refuseName?: string;
   acceptAddress?: string;
   refuseAddress?: string;
-}
-
-/** [key] / [!key] 줄 머리표와 {{key}} 치환을 처리한다. HTML 주석은 지운다. */
-export function renderTemplate(template: string, values: Record<string, string | undefined>): string {
-  return template
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .split("\n")
-    .flatMap((line) => {
-      const marker = /^\[(!?)([a-z_]+)\]\s?/.exec(line);
-      if (!marker) return [line];
-      const present = Boolean(values[marker[2]!]);
-      if (marker[1] === "!" ? present : !present) return [];
-      return [line.slice(marker[0].length)];
-    })
-    .join("\n")
-    .replace(/\{\{([a-z_]+)\}\}/g, (_, key: string) => values[key] ?? "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function prompt(name: string, language: Language): string {
-  return readFileSync(join(ROOT, "prompts", `${name}.${language}.md`), "utf8");
+  /** 찾아보기로 했다 (Reasoner lookup) */
+  consult?: string;
+  /** 나중에 혼자 찾아볼 궁금증 */
+  later?: string;
+  /** 나중에 이 집 사람한테 할 말 (혼자 있을 때) */
+  tells: string[];
 }
 
 const PART_OF_DAY: Record<Language, [number, string][]> = {
@@ -44,25 +32,29 @@ const PART_OF_DAY: Record<Language, [number, string][]> = {
   en: [[5, "late night"], [9, "morning"], [12, "late morning"], [14, "midday"], [18, "afternoon"], [21, "evening"], [24, "night"]],
 };
 
+export function partOfDay(now: number, language: Language): string {
+  const hour = new Date(now).getHours();
+  return PART_OF_DAY[language].find(([until]) => hour < until)?.[1] ?? "";
+}
+
 export function describeNow(now: number, language: Language, character: CharacterState): string {
-  const date = new Date(now);
-  const hour = date.getHours();
-  const part = PART_OF_DAY[language].find(([until]) => hour < until)?.[1] ?? "";
-  const stamp = new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", { dateStyle: "full", timeStyle: "short" }).format(date);
+  const stamp = new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", { dateStyle: "full", timeStyle: "short" }).format(new Date(now));
   const day = dayCount(character, now);
+  const part = partOfDay(now, language);
   return language === "ko" ? `${stamp} (${part}). 이 집에 온 지 ${day}일째.` : `${stamp} (${part}). Day ${day} in this house.`;
 }
 
-export function buildInstructions(language: Language, character: CharacterState, now: number): string {
-  const values = { name: character.name?.value, address_as: character.addressAs?.value, now: describeNow(now, language, character) };
-  return `${renderTemplate(prompt("charter", language), values)}\n\n${renderTemplate(prompt("format", language), values)}`;
+/** 지시문: 존재 규칙 + 출력 형식. 이름과 호칭이 바뀔 때만 달라지므로 프롬프트 캐시를 탄다. */
+export function buildInstructions(language: Language, character: CharacterState): string {
+  const values = { name: character.name?.value, address_as: character.addressAs?.value };
+  return `${renderTemplate(loadPrompt("charter", language), values)}\n\n${renderTemplate(loadPrompt("format", language), values)}`;
 }
 
 const TAG = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "i");
 
 export function parseTalker(raw: string): TalkerOutput {
   let text = raw.replace(/\r/g, "");
-  const output: TalkerOutput = { bubbles: [] };
+  const output: TalkerOutput = { bubbles: [], tells: [] };
 
   const think = TAG("think").exec(text);
   if (think) {
@@ -81,17 +73,24 @@ export function parseTalker(raw: string): TalkerOutput {
     text = text.replace(match[0], "");
     return match[1]!.trim() || undefined;
   };
-  const acceptName = take("name");
-  const refuseName = take("refuse_name");
-  const acceptAddress = take("address");
-  const refuseAddress = take("refuse_address");
-  if (acceptName) output.acceptName = acceptName;
-  if (refuseName) output.refuseName = refuseName;
-  if (acceptAddress) output.acceptAddress = acceptAddress;
-  if (refuseAddress) output.refuseAddress = refuseAddress;
+  // 모델이 <face=happy>, <face:happy> 처럼 쓰기도 한다.
+  let face = take("face")?.toLowerCase();
+  const loose = /<face\s*[=:]\s*["']?([a-z]+)["']?\s*\/?>/i.exec(text);
+  if (loose) {
+    face ??= loose[1]!.toLowerCase();
+    text = text.replace(loose[0], "");
+  }
+  if (FACES.includes(face as Face)) output.face = face as Face;
+  const fields = { acceptName: "name", refuseName: "refuse_name", acceptAddress: "address", refuseAddress: "refuse_address", consult: "consult", later: "later" } as const;
+  for (const [field, tag] of Object.entries(fields) as [keyof typeof fields, string][]) {
+    const value = take(tag);
+    if (value) output[field] = value;
+  }
+  for (let tell = take("tell"); tell; tell = take("tell")) output.tells.push(tell);
 
   output.bubbles = text
-    .replace(/<\/?[a-z_]+>/gi, "")
+    // 남은 태그는 전부 지운다 (<foo>, </foo>, <foo=bar>, <foo/>)
+    .replace(/<\/?[a-z_]+(\s*[=:][^>]*|\s+[^>]*)?\s*\/?>/gi, "")
     .split("\n")
     .map((line) => line.trim().replace(/^([-*•]|\d+[.)])\s+/, "").replace(/^\*\*(.*)\*\*$/, "$1").trim())
     .filter((line) => line && !/^["'“”]+$/.test(line))
@@ -109,16 +108,23 @@ export interface TalkerRequest {
   provider: Provider;
   language: Language;
   character: CharacterState;
-  now: number;
+  /** 대화 기록 */
   messages: ChatMessage[];
+  /** 대화 끝에 붙이는 "[지금]" 블록 */
+  context: string;
+  /** 비서 말투로 다시 쓰게 할 때의 지적 */
+  nudge?: string;
   signal?: AbortSignal;
 }
 
 export async function runTalker(request: TalkerRequest): Promise<{ output: TalkerOutput; raw: string }> {
+  const messages: ChatMessage[] = [...request.messages, { role: "developer", content: request.context }];
+  if (request.nudge) messages.push({ role: "developer", content: request.nudge });
   const { text } = await request.provider.generate({
+    purpose: "talker",
     model: request.layer.model,
-    instructions: buildInstructions(request.language, request.character, request.now),
-    messages: request.messages,
+    instructions: buildInstructions(request.language, request.character),
+    messages,
     ...(request.layer.effort ? { effort: request.layer.effort } : {}),
     maxOutputTokens: 8000,
     ...(request.signal ? { signal: request.signal } : {}),

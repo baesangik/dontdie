@@ -6,18 +6,19 @@
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.13"
   },
   "scripts": {
-    "start": "tsx src/main.ts",
-    "dev": "tsx watch src/main.ts",
-    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "start": "node --disable-warning=ExperimentalWarning --import tsx src/main.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --import tsx --watch src/main.ts",
+    "try": "node --disable-warning=ExperimentalWarning --import tsx scripts/try.ts",
+    "sprites": "node scripts/make-placeholder-art.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@napi-rs/keyring": "^2.1.0",
-    "galmuri": "^2.40.3",
     "jose": "^6.2.12",
     "proper-lockfile": "^4.1.2",
     "tsx": "^4.23.15"

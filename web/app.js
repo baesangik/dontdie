@@ -1,63 +1,29 @@
-import { createRoom } from "/room.js";
-
-const T = {
-  ko: {
-    settings: "설정", adopt: "데려오기", send: "보내기", feed: "속마음", show: "보기", account: "ChatGPT 계정",
-    logout: "로그아웃", language: "언어", models: "모델", pace: "속도", localUrl: "로컬 모델 주소", cancel: "취소", save: "저장",
-    noName: "이름 없음", day: (n) => `${n}일차`, outsideDay: "집 앞",
-    placeholder: "말 걸기…", placeholderOutside: "아직 집 앞에 있다",
-    pose: {
-      outside: "현관 앞에 쭈그려 앉아 있다", idle: "멍때리는 중", looking: "쳐다보는 중", listening: "듣는 중",
-      thinking: "생각 중…", talking: "말하는 중", dozing: "꾸벅꾸벅 조는 중",
-    },
-    seen: "읽음", adopted: "집 안으로 데려왔다",
-    nameGiven: (v) => `이름이 생겼다: ${v}`, nameRefused: (v) => `이름 거절: ${v}`,
-    addressSet: (v) => `호칭: ${v}`, addressRefused: (v) => `호칭 거절: ${v}`,
-    attention: {
-      attending: "쳐다봄", engaged: "대화 중", winding_down: "대화가 끝난 듯", around: "하던 일로", away: "자리 비움",
-    },
-    returned: (min) => `돌아옴 (${min}분 만에)`,
-    tags: { thought: "생각", attention: "주의", identity: "이름", error: "오류", call: "호출", login: "로그인" },
-    loginNeeded: "ChatGPT로 로그인해야 깨어난다.", loggingIn: "브라우저에서 로그인하는 중… 동의를 마치면 자동으로 이어진다.",
-    loginCancel: "취소", loggedIn: (who) => `연결됨${who ? `: ${who}` : ""}`, notLoggedIn: "연결 안 됨",
-    connOk: "연결됨", connBad: "연결 안 됨", fake: "fake",
-    layer: { router: "Router", talker: "Talker", reasoner: "Reasoner" },
-    layerNote: { router: "M1부터 사용", talker: "", reasoner: "M1부터 사용" },
-    effortDefault: "기본", notInList: "(목록에 없음)",
-  },
-  en: {
-    settings: "Settings", adopt: "Bring inside", send: "Send", feed: "Inner thoughts", show: "Show", account: "ChatGPT account",
-    logout: "Sign out", language: "Language", models: "Models", pace: "Pace", localUrl: "Local model URL", cancel: "Cancel", save: "Save",
-    noName: "Nameless", day: (n) => `Day ${n}`, outsideDay: "Outside",
-    placeholder: "Say something…", placeholderOutside: "Still outside the door",
-    pose: {
-      outside: "Crouching at the front door", idle: "Spacing out", looking: "Looking at you", listening: "Listening",
-      thinking: "Thinking…", talking: "Talking", dozing: "Dozing off",
-    },
-    seen: "Read", adopted: "Brought inside",
-    nameGiven: (v) => `Got a name: ${v}`, nameRefused: (v) => `Refused name: ${v}`,
-    addressSet: (v) => `Calls you: ${v}`, addressRefused: (v) => `Refused to call you: ${v}`,
-    attention: {
-      attending: "looks at you", engaged: "talking", winding_down: "conversation winding down", around: "back to its thing", away: "you're away",
-    },
-    returned: (min) => `you're back (${min} min)`,
-    tags: { thought: "thought", attention: "attn", identity: "name", error: "error", call: "call", login: "login" },
-    loginNeeded: "Sign in with ChatGPT to wake it up.", loggingIn: "Signing in in your browser… it continues once you approve.",
-    loginCancel: "Cancel", loggedIn: (who) => `Connected${who ? `: ${who}` : ""}`, notLoggedIn: "Not connected",
-    connOk: "Connected", connBad: "Not connected", fake: "fake",
-    layer: { router: "Router", talker: "Talker", reasoner: "Reasoner" },
-    layerNote: { router: "used from M1", talker: "", reasoner: "used from M1" },
-    effortDefault: "default", notInList: "(not listed)",
-  },
-};
+import { T } from "/i18n.js";
+import { createMind } from "/mind.js";
+import { createStage, faceSprite } from "/stage.js";
 
 const $ = (selector) => document.querySelector(selector);
-const room = createRoom($("#room"));
-let S = null;
-const ui = { thinking: false, botTyping: false, userTypingUntil: 0, attention: "around", lastSeen: 0 };
-const modelCache = new Map();
+const PRESENT = ["attending", "engaged", "winding_down"];
+const FACE_MS = 25_000;
+const NEW_TURN_AFTER_MS = 60_000;
 
-const t = () => T[S?.config.language ?? "ko"];
+let S = null;
+const ui = {
+  thinking: false,
+  botTyping: false,
+  userTypingUntil: 0,
+  attention: "around",
+  face: null,
+  jobs: new Map(),
+  turn: { user: null, lines: [] },
+  lastSayAt: 0,
+  cg: null,
+  error: null,
+};
+
+const tr = () => T[S?.config.language ?? "ko"];
+const stage = createStage({ stage: $("#stage"), layer: $("#spriteLayer"), a: $("#spriteA"), b: $("#spriteB") });
+const mind = createMind({ tr, language: () => S?.config.language ?? "ko", post });
 
 async function post(path, body = {}) {
   const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -66,202 +32,219 @@ async function post(path, body = {}) {
   return data;
 }
 
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// ── 불러오기 ──
+
 async function load() {
+  const previousPack = S?.config.spritePack;
   S = await (await fetch("/api/state")).json();
   ui.attention = S.attention;
-  ui.thinking = false;
-  ui.botTyping = false;
-  for (const event of S.events) {
-    if (event.type === "thinking") ui.thinking = event.on;
-    if (event.type === "typing") ui.botTyping = event.on;
-    if (event.type === "say") ui.botTyping = false;
-  }
-  if (!S.busy) { ui.thinking = false; ui.botTyping = false; }
+  if (S.config.spritePack !== previousPack) await stage.loadPack(S.config.spritePack);
+  replay(S.events);
+  mind.reset(S.events);
+  mind.setShowThoughts(S.config.showThoughts);
   render();
 }
 
-// ── 렌더링 ──
+/** 저장된 이벤트로 대사창 상태를 다시 만든다 (새로고침해도 이어지게). */
+function replay(events) {
+  ui.turn = { user: null, lines: [] };
+  ui.thinking = false;
+  ui.botTyping = false;
+  ui.jobs.clear();
+  for (const event of events) handle(event, false);
+  if (!S.busy) { ui.thinking = false; ui.botTyping = false; }
+  for (const job of S.mind?.jobs ?? []) ui.jobs.set(job.id, job);
+}
+
+// ── 그리기 ──
 
 function render() {
-  const tr = t();
+  const t = tr();
   document.documentElement.lang = S.config.language;
-  for (const element of document.querySelectorAll("[data-i18n]")) {
-    const value = tr[element.dataset.i18n];
-    if (typeof value === "string") element.textContent = value;
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    const value = t[node.dataset.i18n];
+    if (typeof value === "string") node.textContent = value;
   }
-  renderHeader();
-  renderLogin();
-  $("#adoptBtn").hidden = S.adopted;
-  $("#adoptBtn").disabled = !S.providers[S.config.layers.talker.provider]?.ready;
+  const name = S.character.name ?? t.unnamed;
+  $("#name").textContent = name;
+  $("#plate").textContent = name;
+  $("#day").textContent = S.adopted ? t.day(S.character.day) : "";
   $("#input").disabled = !S.adopted;
   $("#sendBtn").disabled = !S.adopted;
-  $("#input").placeholder = S.adopted ? tr.placeholder : tr.placeholderOutside;
-  $("#thoughtToggle").checked = S.config.showThoughts;
-  $(".side").classList.toggle("hide-thoughts", !S.config.showThoughts);
-
-  $("#chat").replaceChildren();
-  $("#feed").replaceChildren();
-  for (const event of S.events) drawEvent(event, false);
-  if (ui.botTyping) showTyping(true);
+  $("#input").placeholder = S.mind?.asleep ? t.placeholderAsleep : t.placeholder;
+  renderBox();
+  renderNotice();
+  if (!S.adopted) startCg();
+  else if (ui.cg && ui.cg.state !== "adopting") endCg(false);
+  stage.setVisible(S.adopted && !ui.cg);
   updatePose();
-  scrollDown();
 }
 
-function renderHeader() {
-  const tr = t();
-  $("#name").textContent = S.character.name ?? tr.noName;
-  $("#day").textContent = S.adopted ? tr.day(S.character.day) : tr.outsideDay;
+function renderBox(animateLast = false) {
+  const t = tr();
+  const you = $("#you");
+  if (ui.turn.user) {
+    you.hidden = false;
+    you.replaceChildren(document.createTextNode(ui.turn.user.text));
+    if (ui.turn.user.seen) you.append(el("span", "read", t.seen));
+  } else {
+    you.hidden = true;
+  }
+  const lines = $("#lines");
+  lines.replaceChildren();
+  ui.turn.lines.forEach((line, index) => {
+    const node = el("p", `line${line.sys ? " sys" : ""}${index < ui.turn.lines.length - 1 && !line.sys ? " old" : ""}`);
+    lines.append(node);
+    if (animateLast && index === ui.turn.lines.length - 1 && !line.sys) typewrite(node, line.text);
+    else node.textContent = line.text;
+  });
+  if (ui.botTyping) lines.append(el("p", "line typing"));
+  lines.scrollTop = lines.scrollHeight;
+}
+
+let typing = 0;
+function typewrite(node, text) {
+  const chars = [...text];
+  const step = Math.max(1, Math.ceil(chars.length / 40));
+  let shown = 0;
+  clearInterval(typing);
+  typing = setInterval(() => {
+    shown = Math.min(chars.length, shown + step);
+    node.textContent = chars.slice(0, shown).join("");
+    if (shown >= chars.length) clearInterval(typing);
+  }, 22);
+}
+
+function renderNotice() {
+  const t = tr();
+  const notice = $("#notice");
+  const button = $("#noticeBtn");
   const talker = S.config.layers.talker.provider;
   const status = S.providers[talker];
-  const conn = $("#conn");
-  conn.className = "chip " + (status?.ready ? "ok" : "bad");
-  conn.textContent = talker === "fake" ? tr.fake : status?.ready ? `${tr.connOk} · ${S.config.layers.talker.model}` : tr.connBad;
-  conn.title = status?.detail ?? "";
-}
-
-function renderLogin() {
-  const tr = t();
-  const talker = S.config.layers.talker.provider;
-  const status = S.providers[talker];
-  const needsChatGPT = Object.values(S.config.layers).some((layer) => layer.provider === "chatgpt") && !S.providers.chatgpt?.ready;
-  $("#login").hidden = !needsChatGPT;
-  $("#loginText").textContent = S.signingIn ? tr.loggingIn : S.providers.chatgpt?.detail ?? tr.loginNeeded;
-  $("#loginBtn").textContent = S.signingIn ? tr.loginCancel : "Sign in with ChatGPT";
-  const badge = $("#sysbadge");
-  if (talker !== "chatgpt" && status && !status.ready) {
-    badge.hidden = false;
-    badge.textContent = status.detail ?? "provider not ready";
-  } else if (!badge.dataset.error) {
-    badge.hidden = true;
+  notice.classList.remove("error");
+  button.hidden = true;
+  if (ui.error) {
+    notice.hidden = false;
+    notice.classList.add("error");
+    $("#noticeText").textContent = ui.error;
+    return;
   }
-}
-
-function time(ms) {
-  const date = new Date(ms);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-function addMessage(side, text, id) {
-  const wrap = document.createElement("div");
-  wrap.className = `msg ${side}`;
-  if (id) wrap.dataset.id = id;
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-  bubble.textContent = text;
-  wrap.append(bubble);
-  $("#chat").append(wrap);
-  return wrap;
-}
-
-function addSys(text) {
-  const line = document.createElement("div");
-  line.className = "sys";
-  line.textContent = `— ${text} —`;
-  $("#chat").append(line);
-}
-
-function markSeen(upTo) {
-  const tr = t();
-  for (const message of document.querySelectorAll(".msg.me")) {
-    if (Number(message.dataset.id) <= upTo && !message.querySelector(".meta")) {
-      const meta = document.createElement("span");
-      meta.className = "meta";
-      meta.textContent = tr.seen;
-      message.append(meta);
+  if (S.adopted && status && !status.ready) {
+    notice.hidden = false;
+    $("#noticeText").textContent = S.signingIn ? t.notice.signingIn : status.detail ?? t.notice.login;
+    if (talker === "chatgpt") {
+      button.hidden = false;
+      button.textContent = S.signingIn ? t.notice.cancel : t.notice.loginBtn;
     }
+    return;
   }
-}
-
-function showTyping(on) {
-  document.querySelector(".msg.typing")?.remove();
-  if (!on) return;
-  const wrap = addMessage("bot", "···");
-  wrap.classList.add("typing");
-}
-
-function addFeed(kind, text, at) {
-  const tr = t();
-  const item = document.createElement("li");
-  item.className = kind;
-  const stamp = document.createElement("time");
-  stamp.textContent = time(at);
-  const body = document.createElement("span");
-  const tag = document.createElement("span");
-  tag.className = "tag";
-  tag.textContent = tr.tags[kind] ?? kind;
-  body.append(tag, document.createTextNode(text));
-  item.append(stamp, body);
-  $("#feed").append(item);
-  return item;
-}
-
-function drawEvent(event, live) {
-  const tr = t();
-  switch (event.type) {
-    case "adopt": addSys(tr.adopted); break;
-    case "user_message": addMessage("me", event.text, event.id); break;
-    case "seen": markSeen(event.upTo); break;
-    case "thinking": ui.thinking = event.on; break;
-    case "typing": ui.botTyping = event.on; if (live) showTyping(event.on); break;
-    case "say":
-      showTyping(false);
-      addMessage("bot", event.text);
-      if (live && ui.botTyping) showTyping(true);
-      break;
-    case "thought": addFeed("thought", event.text, event.t); break;
-    case "attention": {
-      ui.attention = event.to;
-      const text = event.reason === "return" && event.awayMs ? tr.returned(Math.round(event.awayMs / 60000)) : tr.attention[event.to] ?? event.to;
-      addFeed("attention", text, event.t);
-      break;
-    }
-    case "name_given": addSys(tr.nameGiven(event.name)); addFeed("identity", tr.nameGiven(event.name), event.t); if (S) S.character.name = event.name; break;
-    case "name_refused": addFeed("identity", tr.nameRefused(event.name), event.t); break;
-    case "address_set": addFeed("identity", tr.addressSet(event.address), event.t); break;
-    case "address_refused": addFeed("identity", tr.addressRefused(event.address), event.t); break;
-    case "error":
-      addFeed("error", `${event.code ?? ""} ${event.message ?? ""}`.trim(), event.t);
-      if (live) showError(event.message ?? event.code);
-      break;
-    case "llm_call": addFeed("call", `${event.layer} · ${event.model} · ${(event.ms / 1000).toFixed(1)}s${event.ok ? "" : ` · ${event.code}`}`, event.t); break;
-    case "login": addFeed("login", event.state + (event.detail ? ` · ${event.detail}` : event.message ? ` · ${event.message}` : ""), event.t); break;
-  }
+  notice.hidden = true;
 }
 
 function showError(message) {
-  const badge = $("#sysbadge");
-  badge.hidden = false;
-  badge.dataset.error = "1";
-  badge.textContent = message;
+  ui.error = message;
+  renderNotice();
   clearTimeout(showError.timer);
-  showError.timer = setTimeout(() => { delete badge.dataset.error; badge.hidden = true; if (S) renderLogin(); }, 15000);
+  showError.timer = setTimeout(() => { ui.error = null; if (S) renderNotice(); }, 12_000);
+}
+
+// ── 포즈와 상태 줄 ──
+
+function present() {
+  return PRESENT.includes(ui.attention);
+}
+
+function currentFace() {
+  return ui.face && performance.now() - ui.face.at < FACE_MS ? faceSprite(ui.face.face) : null;
 }
 
 function computePose() {
-  if (!S?.adopted) return "outside";
-  if (ui.thinking) return "thinking";
-  if (ui.botTyping) return "talking";
-  if (performance.now() < ui.userTypingUntil) return "listening";
-  if (["attending", "engaged", "winding_down"].includes(ui.attention)) return "looking";
-  if (ui.attention === "away") return "dozing";
-  return "idle";
+  const mindState = S?.mind;
+  const lookup = [...ui.jobs.values()].find((job) => job.kind === "lookup");
+  const face = currentFace();
+  if (mindState?.asleep) return { sprite: "sleep", status: "asleep" };
+  if (ui.botTyping) return { sprite: face ?? "talk", status: "typing", talking: true };
+  if (ui.thinking) return { sprite: "think", status: "thinking" };
+  if (lookup && present()) return { sprite: "search", status: "searching", query: lookup.query };
+  if (performance.now() < ui.userTypingUntil) return { sprite: "listen", status: "listening" };
+  if (present()) return { sprite: face ?? "look", status: ui.jobs.size ? "pondering" : "looking" };
+  const activity = mindState?.activity;
+  if (lookup) return { sprite: "search", status: "searching", query: lookup.query };
+  if (activity && !activity.paused) return { sprite: activity.sprite, status: "activity", text: activity.progress ?? activity.label };
+  if (ui.attention === "away") return { sprite: "sleepy", status: "away" };
+  return { sprite: face ?? "neutral", status: null };
 }
 
 function updatePose() {
+  if (!S) return;
   const pose = computePose();
-  room.setPose(pose);
-  const name = S?.character.name;
-  $("#status").textContent = (name && pose !== "outside" ? `${name} · ` : "") + t().pose[pose];
+  stage.show(pose.sprite);
+  stage.setTalking(Boolean(pose.talking));
+  const t = tr();
+  const status = $("#status");
+  const text = pose.status === "activity" ? pose.text
+    : pose.status === "searching" ? t.status.searching(pose.query)
+    : pose.status ? t.status[pose.status] : null;
+  status.hidden = !S.adopted || !text;
+  status.textContent = text ?? "";
 }
 
-function scrollDown() {
-  const chat = $("#chat");
-  chat.scrollTop = chat.scrollHeight;
-  const feed = $("#feed");
-  feed.scrollTop = feed.scrollHeight;
+// ── 이벤트 ──
+
+function newTurn(user) {
+  ui.turn = { user, lines: [] };
 }
 
-// ── 실시간 이벤트 ──
+function addLine(line) {
+  ui.turn.lines.push(line);
+  if (ui.turn.lines.length > 5) ui.turn.lines.shift();
+  if (!line.sys) ui.lastSayAt = Date.now();
+}
+
+function handle(event, live) {
+  const t = tr();
+  switch (event.type) {
+    case "adopt": addLine({ text: t.adopted, sys: true }); break;
+    case "user_message": newTurn({ id: event.id, text: event.text, seen: false }); break;
+    case "seen": if (ui.turn.user && ui.turn.user.id <= event.upTo) ui.turn.user.seen = true; break;
+    case "thinking": ui.thinking = event.on; break;
+    case "typing": ui.botTyping = event.on; break;
+    case "say": {
+      // 이미 대답이 끝난 장면에서 한참 뒤에 먼저 말을 걸면 새 장면으로
+      const at = live ? Date.now() : event.t;
+      if (ui.turn.lines.some((line) => !line.sys) && at - ui.lastSayAt > NEW_TURN_AFTER_MS) newTurn(null);
+      addLine({ text: event.text });
+      ui.lastSayAt = at;
+      break;
+    }
+    case "face": ui.face = { face: event.face, at: live ? performance.now() : performance.now() - (Date.now() - event.t) }; break;
+    case "consult":
+      if (event.state === "start") ui.jobs.set(event.jobId, { kind: event.kind, query: event.query });
+      else ui.jobs.delete(event.jobId);
+      break;
+    case "attention": ui.attention = event.to; break;
+    case "name_given": addLine({ text: t.nameGiven(event.name), sys: true }); break;
+    case "address_set": addLine({ text: t.addressSet(event.address), sys: true }); break;
+    case "error": if (live && event.message) showError(event.message); break;
+  }
+}
+
+let mindRefresh = 0;
+function refreshMind() {
+  clearTimeout(mindRefresh);
+  mindRefresh = setTimeout(async () => {
+    try { S.mind = await (await fetch("/api/mind")).json(); } catch { return; }
+    $("#input").placeholder = S.mind.asleep ? tr().placeholderAsleep : tr().placeholder;
+    updatePose();
+  }, 250);
+}
 
 function connect() {
   const source = new EventSource("/api/events");
@@ -269,16 +252,139 @@ function connect() {
     const event = JSON.parse(message.data);
     if (!S) return;
     S.events.push(event);
+    if (S.events.length > 1500) S.events.splice(0, S.events.length - 1000);
     if (["login", "config_change", "name_given", "address_set", "adopt"].includes(event.type)) {
+      handleLogin(event);
       load();
+      mind.onEvent(event);
       return;
     }
-    drawEvent(event, true);
+    handle(event, true);
+    mind.onEvent(event);
+    if (["activity", "sleep", "consult", "budget", "speech"].includes(event.type)) refreshMind();
+    if (["user_message", "seen", "say", "typing", "error"].includes(event.type)) renderBox(event.type === "say");
     updatePose();
-    scrollDown();
   };
-  source.onerror = () => { /* EventSource가 알아서 다시 붙는다 */ };
 }
+
+// ── 첫 만남 CG ──
+
+function startCg() {
+  if (ui.cg) return;
+  const t = tr();
+  ui.cg = { state: "narration", index: 0 };
+  $("#cg").hidden = false;
+  $("#cgImage").src = stage.cgUrl("first_meeting");
+  showCgText(t.cg.lines[0]);
+}
+
+function showCgText(text, choices = []) {
+  $("#cgText").textContent = text;
+  const box = $("#cgChoices");
+  box.replaceChildren(...choices.map((choice) => {
+    if (choice.note) return el("p", "choice-note", choice.note);
+    const button = el("button", "choice", choice.label);
+    button.type = "button";
+    button.disabled = Boolean(choice.disabled);
+    button.addEventListener("click", (event) => { event.stopPropagation(); choice.action(); });
+    return button;
+  }));
+  $("#cgNext").hidden = choices.length > 0;
+}
+
+function advanceCg() {
+  const cg = ui.cg;
+  if (!cg) return;
+  const t = tr();
+  if (cg.state === "narration") {
+    cg.index++;
+    if (cg.index < t.cg.lines.length) showCgText(t.cg.lines[cg.index]);
+    else {
+      cg.state = "choice";
+      showCgText(t.cg.lines.at(-1), [{ label: t.cg.take, action: takeIn }, { label: t.cg.ignore, action: ignore }]);
+    }
+  } else if (cg.state === "ignored") {
+    cg.state = "choice";
+    showCgText(t.cg.ignored, [{ label: t.cg.takeAfter, action: takeIn }]);
+  }
+}
+
+function ignore() {
+  ui.cg.state = "ignored";
+  showCgText(tr().cg.ignored);
+}
+
+function takeIn() {
+  const t = tr();
+  const talker = S.config.layers.talker.provider;
+  const status = S.providers[talker];
+  if (!status?.ready) {
+    ui.cg.state = "login";
+    if (talker === "chatgpt") {
+      showCgText(S.signingIn ? t.cg.signingIn : t.cg.needLogin, [
+        S.signingIn ? { label: t.cg.cancel, action: () => toggleLogin() } : { label: t.cg.login, action: () => toggleLogin() },
+      ]);
+    } else {
+      showCgText(t.cg.notReady(status?.detail ?? talker), [{ label: t.cg.take, action: takeIn }]);
+    }
+    return;
+  }
+  ui.cg.state = "adopting";
+  showCgText(t.cg.lines.at(-1), []);
+  $("#cgNext").hidden = true;
+  post("/api/adopt").catch((error) => showError(error.message));
+}
+
+function endCg(flash = true) {
+  if (!ui.cg) return;
+  ui.cg = null;
+  if (flash) {
+    const node = $("#flash");
+    node.classList.remove("go");
+    void node.offsetWidth;
+    node.classList.add("go");
+    setTimeout(() => { $("#cg").hidden = true; stage.setVisible(true); }, 450);
+  } else {
+    $("#cg").hidden = true;
+  }
+}
+
+function handleLogin(event) {
+  if (event.type === "adopt" && ui.cg) {
+    ui.cg.state = "adopting";
+    endCg(true);
+    return;
+  }
+  // CG에서 로그인하다가 끝났으면 바로 데려온다.
+  if (event.type === "login" && ui.cg?.state === "login") {
+    setTimeout(() => {
+      if (!ui.cg || ui.cg.state !== "login") return;
+      if (event.state === "done" && event.ready) { S.providers.chatgpt = { ready: true }; takeIn(); }
+      else takeIn();
+    }, 400);
+  }
+}
+
+$("#cg").addEventListener("click", advanceCg);
+document.addEventListener("keydown", (event) => {
+  if (ui.cg && (event.key === "Enter" || event.key === " ") && document.activeElement?.tagName !== "BUTTON") {
+    event.preventDefault();
+    advanceCg();
+  }
+});
+
+// ── 로그인 ──
+
+async function toggleLogin() {
+  try {
+    if (S.signingIn) await post("/api/login/cancel");
+    else await post("/api/login");
+  } catch (error) { showError(error.message); }
+  setTimeout(async () => { await load(); if (ui.cg?.state === "login") takeIn(); }, 300);
+}
+$("#noticeBtn").addEventListener("click", toggleLogin);
+$("#settingsLogin").addEventListener("click", toggleLogin);
+$("#settingsLogout").addEventListener("click", async () => { await post("/api/logout").catch((error) => showError(error.message)); load(); });
 
 // ── 주의 신호 ──
 
@@ -290,7 +396,7 @@ window.addEventListener("blur", () => signal("blur"));
 $("#input").addEventListener("focus", () => signal("chat_focus"));
 $("#input").addEventListener("pointerdown", () => signal("chat_focus"));
 $("#input").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") return;
+  if (event.key === "Enter" || event.isComposing) return;
   ui.userTypingUntil = performance.now() + 3000;
   updatePose();
   setTimeout(updatePose, 3100);
@@ -299,8 +405,6 @@ $("#input").addEventListener("keydown", (event) => {
     signal("typing");
   }
 });
-
-// ── 조작 ──
 
 $("#composer").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -313,25 +417,33 @@ $("#composer").addEventListener("submit", async (event) => {
   catch (error) { showError(error.message); input.value = text; }
 });
 
-$("#adoptBtn").addEventListener("click", () => post("/api/adopt").catch((error) => showError(error.message)));
+// ── 로그 (백로그) ──
 
-async function toggleLogin() {
-  try {
-    if (S.signingIn) await post("/api/login/cancel");
-    else await post("/api/login");
-  } catch (error) { showError(error.message); }
-  setTimeout(load, 300);
-}
-$("#loginBtn").addEventListener("click", toggleLogin);
-$("#settingsLogin").addEventListener("click", toggleLogin);
-$("#settingsLogout").addEventListener("click", async () => { await post("/api/logout").catch((error) => showError(error.message)); load(); });
-
-$("#thoughtToggle").addEventListener("change", async (event) => {
-  await post("/api/config", { showThoughts: event.target.checked }).catch((error) => showError(error.message));
+$("#logBtn").addEventListener("click", () => {
+  const t = tr();
+  const list = $("#logList");
+  const name = S.character.name ?? t.unnamed;
+  list.replaceChildren(...S.events.flatMap((event) => {
+    if (event.type === "user_message" || event.type === "say") {
+      const item = el("li", event.type === "user_message" ? "me" : "bot");
+      item.append(el("span", "who", event.type === "user_message" ? t.me : name), el("div", "text", event.text));
+      return [item];
+    }
+    if (event.type === "adopt") return [el("li", "sys", t.adopted)];
+    if (event.type === "name_given") return [el("li", "sys", t.nameGiven(event.name))];
+    if (event.type === "address_set") return [el("li", "sys", t.addressSet(event.address))];
+    return [];
+  }));
+  $("#log").showModal();
+  list.parentElement.scrollTop = list.parentElement.scrollHeight;
 });
+for (const button of document.querySelectorAll("[data-close]")) button.addEventListener("click", () => button.closest("dialog").close());
+
+$("#mindBtn").addEventListener("click", () => mind.toggle());
 
 // ── 설정 ──
 
+const modelCache = new Map();
 async function modelsFor(provider) {
   if (!modelCache.has(provider)) {
     const result = await (await fetch(`/api/models?provider=${encodeURIComponent(provider)}`)).json();
@@ -341,57 +453,49 @@ async function modelsFor(provider) {
 }
 
 function layerRow(name, layer) {
-  const tr = t();
-  const row = document.createElement("div");
-  row.className = "layer-row";
+  const t = tr();
+  const row = el("div", "layer-row");
   row.dataset.layer = name;
-  const label = document.createElement("strong");
-  label.textContent = tr.layer[name];
-  const provider = document.createElement("select");
-  provider.className = "provider";
+  const provider = el("select", "provider");
   for (const id of ["chatgpt", "openai", "anthropic", "local", "fake"]) provider.append(new Option(id, id, false, id === layer.provider));
-  const model = document.createElement("input");
-  model.className = "model";
+  const model = el("input", "model");
   model.value = layer.model;
   model.setAttribute("list", `models-${name}`);
-  const list = document.createElement("datalist");
+  const list = el("datalist");
   list.id = `models-${name}`;
-  const effort = document.createElement("select");
-  effort.className = "effort";
-  for (const value of ["", "none", "low", "medium", "high", "xhigh", "max"]) effort.append(new Option(value || tr.effortDefault, value, false, value === (layer.effort ?? "")));
-  row.append(label, provider, model, effort, list);
-  if (tr.layerNote[name]) {
-    const note = document.createElement("span");
-    note.className = "note";
-    note.textContent = tr.layerNote[name];
-    row.append(note);
-  }
-  const fillModels = async () => {
-    const models = await modelsFor(provider.value);
-    list.replaceChildren(...models.map((entry) => new Option(entry.label, entry.id)));
-  };
+  const effort = el("select", "effort");
+  for (const value of ["", "none", "low", "medium", "high", "xhigh", "max"]) effort.append(new Option(value || t.effortDefault, value, false, value === (layer.effort ?? "")));
+  row.append(el("strong", "", t.layer[name]), provider, model, effort, list);
+  const fill = async () => list.replaceChildren(...(await modelsFor(provider.value)).map((entry) => new Option(entry.label, entry.id)));
   provider.addEventListener("change", () => {
     const defaults = S.providerDefaults[provider.value]?.[name];
     if (defaults) { model.value = defaults.model; effort.value = defaults.effort ?? ""; }
-    fillModels();
+    fill();
   });
-  fillModels();
+  fill();
   return row;
 }
 
 $("#settingsBtn").addEventListener("click", () => {
-  const tr = t();
+  const t = tr();
+  const config = S.config;
   const chatgpt = S.providers.chatgpt;
-  $("#accountText").textContent = chatgpt?.ready ? tr.loggedIn(chatgpt.account) : chatgpt?.detail ?? tr.notLoggedIn;
+  $("#accountText").textContent = chatgpt?.ready ? t.loggedIn(chatgpt.account) : chatgpt?.detail ?? t.notLoggedIn;
   $("#settingsLogout").hidden = !chatgpt?.ready;
-  $("#language").value = S.config.language;
-  $("#pace").value = S.config.pace;
-  $("#paceValue").textContent = `×${S.config.pace}`;
-  $("#localUrl").value = S.config.local.baseUrl;
+  $("#language").value = config.language;
+  $("#pace").value = config.pace;
+  $("#paceValue").textContent = `×${config.pace}`;
+  $("#localUrl").value = config.local.baseUrl;
+  $("#lifeEnabled").checked = config.life.enabled;
+  $("#quietHours").value = config.life.quietHours;
+  $("#assistantism").value = config.assistantism;
+  $("#budgetRouter").value = config.budget.daily.router;
+  $("#budgetTalker").value = config.budget.daily.talker;
+  $("#budgetReasoner").value = config.budget.daily.reasoner;
   const layers = $("#layers");
   layers.querySelectorAll(".layer-row").forEach((row) => row.remove());
   modelCache.clear();
-  for (const name of ["router", "talker", "reasoner"]) layers.append(layerRow(name, S.config.layers[name]));
+  for (const name of ["router", "talker", "reasoner"]) layers.append(layerRow(name, config.layers[name]));
   $("#settings").showModal();
 });
 $("#pace").addEventListener("input", (event) => { $("#paceValue").textContent = `×${event.target.value}`; });
@@ -404,10 +508,23 @@ $("#settings").addEventListener("close", async () => {
     layers[row.dataset.layer] = { provider: row.querySelector(".provider").value, model: row.querySelector(".model").value, ...(effort ? { effort } : {}) };
   }
   try {
-    await post("/api/config", { language: $("#language").value, layers, pace: Number($("#pace").value), local: { baseUrl: $("#localUrl").value } });
+    await post("/api/config", {
+      language: $("#language").value,
+      layers,
+      pace: Number($("#pace").value),
+      local: { baseUrl: $("#localUrl").value },
+      life: { enabled: $("#lifeEnabled").checked, quietHours: $("#quietHours").value.trim() || S.config.life.quietHours },
+      assistantism: $("#assistantism").value,
+      budget: { daily: { router: Number($("#budgetRouter").value), talker: Number($("#budgetTalker").value), reasoner: Number($("#budgetReasoner").value) } },
+    });
   } catch (error) { showError(error.message); }
 });
 
+// ── 시작 ──
+
+stage.updateTime();
+setInterval(() => stage.updateTime(), 60_000);
 await load();
 connect();
 setInterval(updatePose, 1000);
+setInterval(refreshMind, 30_000);

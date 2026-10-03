@@ -28,10 +28,13 @@ export class LocalProvider implements Provider {
         ...request.messages.map((message) => ({ role: message.role === "developer" ? "system" : message.role, content: message.content })),
       ],
       ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
+      // 대부분의 OpenAI 호환 서버(Ollama, llama.cpp, vLLM)가 json_schema 형식을 받는다.
+      ...(request.json ? { response_format: { type: "json_schema", json_schema: { name: request.json.name, strict: true, schema: request.json.schema } } } : {}),
     }, request.signal) as { choices?: { message?: { content?: string } }[] };
     const text = body.choices?.[0]?.message?.content ?? "";
     request.onDelta?.(text);
-    return { text };
+    // 로컬 서버에는 웹 검색이 없다.
+    return { text, ...(request.webSearch ? { webSearchUnavailable: true } : {}) };
   }
 
   async #request(method: string, path: string, payload?: unknown, signal?: AbortSignal): Promise<unknown> {

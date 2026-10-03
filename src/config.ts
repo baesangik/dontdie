@@ -18,14 +18,35 @@ export interface LayerConfig {
   effort?: string;
 }
 
+export type AssistantismMode = "regenerate" | "trim" | "off";
+export const ASSISTANTISM_MODES: readonly AssistantismMode[] = ["regenerate", "trim", "off"];
+
+export interface LifeConfig {
+  /** 혼자 생활하기 (활동, 잠, 일기). 끄면 대화만 한다. */
+  enabled: boolean;
+  /** 잠자는 시간 "HH:MM-HH:MM" */
+  quietHours: string;
+  /** 대화가 끝나고 이만큼 지나면 혼자 뭔가를 시작한다 (분) */
+  idleBeforeActivityMin: number;
+  /** 하루 먼저 말 걸기 상한 */
+  proactivePerDay: number;
+}
+
 export interface Config {
   version: 1;
   language: Language;
   layers: Record<LayerName, LayerConfig>;
-  /** 페이싱 배속 (2면 두 배 빠름) */
+  /** 페이싱 배속 (2면 두 배 빠름). 활동 시간도 같이 빨라진다. */
   pace: number;
   showThoughts: boolean;
   attention: AttentionConfig;
+  /** 계층별 하루 호출 상한 = 체력 */
+  budget: { daily: Record<LayerName, number> };
+  life: LifeConfig;
+  /** 비서 말투가 걸렸을 때: 다시 쓰게 함 / 다듬기만 / 끔 */
+  assistantism: AssistantismMode;
+  /** web/sprites/<pack>/ */
+  spritePack: string;
   local: { baseUrl: string };
   port: number;
 }
@@ -67,9 +88,23 @@ export function defaultConfig(): Config {
     pace: 1,
     showThoughts: true,
     attention: { ...DEFAULT_ATTENTION },
+    budget: { daily: { router: 800, talker: 400, reasoner: 60 } },
+    life: { enabled: true, quietHours: "02:00-08:00", idleBeforeActivityMin: 3, proactivePerDay: 8 },
+    assistantism: "regenerate",
+    spritePack: "placeholder",
     local: { baseUrl: "http://127.0.0.1:11434/v1" },
     port: 7717,
   };
+}
+
+/** "02:00-08:00" 안에 있는가. 자정을 넘는 범위도 된다. */
+export function inQuietHours(range: string, now: number): boolean {
+  const match = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(range.trim());
+  if (!match) return false;
+  const [from, to] = [Number(match[1]) * 60 + Number(match[2]), Number(match[3]) * 60 + Number(match[4])];
+  const date = new Date(now);
+  const minute = date.getHours() * 60 + date.getMinutes();
+  return from <= to ? minute >= from && minute < to : minute >= from || minute < to;
 }
 
 const CONFIG_FILE = () => join(DATA_DIR, "config.json");
@@ -83,6 +118,8 @@ export function loadConfig(file = CONFIG_FILE()): Config {
     ...saved,
     layers: { ...base.layers, ...saved.layers },
     attention: { ...base.attention, ...saved.attention },
+    budget: { daily: { ...base.budget.daily, ...saved.budget?.daily } },
+    life: { ...base.life, ...saved.life },
     local: { ...base.local, ...saved.local },
   };
 }

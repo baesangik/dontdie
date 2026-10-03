@@ -16,7 +16,7 @@ Files changed by dontdie carry a `MODIFIED by dontdie` notice at the top:
 
 | File | Change |
 |---|---|
-| `src/types.ts` | Added optional `reasoningEffort` to `StreamResponseOptions`. |
-| `src/responses.ts` | Forwards `reasoningEffort` as `reasoning: { effort }`. |
+| `src/types.ts` | Added optional `reasoningEffort` and `extraBody` to `StreamResponseOptions`; `streamResponse` now returns `citations` too. |
+| `src/responses.ts` | Forwards `reasoningEffort` as `reasoning: { effort }`. Merges `extraBody` fields (for example `tools`, `text`) without letting them override `model`, `input`, `instructions`, `reasoning`, `store` or `stream`. Collects `url_citation` annotations. |
 
 All other files are unmodified.

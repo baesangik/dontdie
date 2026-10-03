@@ -1,4 +1,5 @@
 // MODIFIED by dontdie (2026-10-03): added optional `reasoningEffort` to StreamResponseOptions.
+// MODIFIED by dontdie (2026-10-04): added optional `extraBody` and `citations` in the stream result.
 // This file is a Modified Work under the Sign-in with ChatGPT DevKit Noncommercial License v1.0 (see ../LICENSE).
 export interface SessionIdentity {
   name?: string;
@@ -80,8 +81,24 @@ export interface StreamResponseOptions {
   instructions?: string;
   /** dontdie modification: forwarded as `reasoning: { effort }` when set. */
   reasoningEffort?: string;
+  /**
+   * dontdie modification: extra Responses API fields (for example `tools` or `text`).
+   * `model`, `input`, `instructions`, `reasoning`, `store` and `stream` cannot be overridden.
+   */
+  extraBody?: Record<string, unknown>;
   signal?: AbortSignal;
   onDelta?: (delta: string) => void;
+}
+
+/** dontdie modification: URL citations are collected from annotation events. */
+export interface ResponseCitation {
+  url: string;
+  title?: string;
+}
+
+export interface StreamResponseResult {
+  text: string;
+  citations: ResponseCitation[];
 }
 
 export interface SignInOptions {
@@ -104,7 +121,7 @@ export interface ChatGPTClient {
   subscribe(listener: (session: SessionState) => void): () => void;
   /** Sign out of the selected profile. Its registration and identity remain saved. */
   disconnect(): Promise<void>;
-  streamResponse(options: StreamResponseOptions): Promise<{ text: string }>;
+  streamResponse(options: StreamResponseOptions): Promise<StreamResponseResult>;
 }
 
 export interface StoredCredentials {

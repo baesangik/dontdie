@@ -1,11 +1,12 @@
 // 행동 모듈. 혼자 있을 때 하는 일(뉴스 구경, 위키 토끼굴, 멍때리기 …)은 전부 이 인터페이스로 꽂는다.
 // 콘텐츠 소스도 행동이다: 소스 하나 = 행동 모듈 하나. 하나씩 늘려가면 된다.
 //
-// 스케줄러(M3)가 활동 블록을 잡으면, 계획 시간 동안 tick()을 드문드문 몇 번만 부른다.
+// 생활 스케줄러(src/life/scheduler.ts)가 활동 블록을 잡으면, 계획 시간 동안 tick()을 드문드문 몇 번만 부른다.
 // 틱 사이에는 UI가 sprite와 라벨만 보여준다. 혼자 하는 행동은 읽기 전용이다.
 
 import type { Clock } from "../core/clock.js";
 import type { Language } from "../config.js";
+import type { LookupNote } from "../mind/reasoner.js";
 
 export interface ActionContext {
   clock: Clock;
@@ -15,6 +16,11 @@ export interface ActionContext {
   signal: AbortSignal;
   /** 허용 목록을 거치는 읽기 전용 fetch. 모듈은 fetch를 직접 쓰지 않는다. */
   fetchText(url: string): Promise<string>;
+  /** 혼자 찾아볼 궁금증 (사람, 장소 제외). 오래된 것부터. */
+  questions(): { term: string; context: string }[];
+  /** Reasoner로 찾아본다. 예산이 없으면 null. 찾은 건 하네스가 기억에 남긴다. */
+  lookup(query: string, hint?: string | null): Promise<LookupNote | null>;
+  random(): number;
 }
 
 export interface TickResult {
@@ -38,7 +44,9 @@ export interface ActionModule {
   kind: string;
   /** 상태 줄에 뜨는 라벨 ("뉴스 보는 중") */
   label: Record<Language, string>;
-  /** UI가 그릴 포즈/소품 id */
+  /** 끝난 뒤 한 일 요약 ("뉴스 봄"). 귀가 인사와 일기에 쓴다. */
+  summary: Record<Language, string>;
+  /** UI가 띄울 스프라이트 id (sprite pack의 manifest 키) */
   sprite: string;
   /** 한 번 할 때의 시간 범위 (분) */
   minutes: [min: number, max: number];
@@ -46,9 +54,11 @@ export interface ActionModule {
   ticks: [min: number, max: number];
   /** 0..1, 말을 걸었을 때 바로 반응할 확률 */
   interruptibility: number;
-  /** 0..1, 체력 소모 */
+  /** 체력 소모. 음수면 회복 (낮잠) */
   energyCost: number;
-  /** 지금 할 수 있는가 (네트워크, 설정된 소스 등) */
+  /** 고를 때의 기본 가중치 (기본 1) */
+  weight?: number;
+  /** 지금 할 수 있는가 (네트워크, 설정된 소스, 궁금한 게 있는지 등) */
   available?(context: Omit<ActionContext, "signal" | "topic">): boolean | Promise<boolean>;
   start(context: ActionContext): ActionSession | Promise<ActionSession>;
 }

@@ -1,13 +1,17 @@
 // MODIFIED by dontdie (2026-10-03): forward optional `reasoningEffort` as `reasoning.effort`.
+// MODIFIED by dontdie (2026-10-04): forward optional `extraBody` fields and collect URL citations.
 // This file is a Modified Work under the Sign-in with ChatGPT DevKit Noncommercial License v1.0 (see ../LICENSE).
 import { apiError, ChatGPTError, fetchRemote, isObject, jsonResponse } from "./errors.js";
-import type { StreamResponseOptions } from "./types.js";
+import type { ResponseCitation, StreamResponseOptions, StreamResponseResult } from "./types.js";
+
+// dontdie modification: fields that extraBody may not override.
+const PROTECTED_FIELDS = new Set(["model", "input", "instructions", "reasoning", "store", "stream"]);
 
 export async function streamResponse(
   accessToken: string,
   options: StreamResponseOptions,
   signal: AbortSignal,
-): Promise<{ text: string }> {
+): Promise<StreamResponseResult> {
   const input = typeof options.input === "string" ? [{ role: "user", content: options.input }] : options.input;
   if (!Array.isArray(input) || input.some((message) =>
     !isObject(message) || !["user", "assistant", "developer"].includes(String(message.role)) || typeof message.content !== "string"
@@ -22,6 +26,8 @@ export async function streamResponse(
       accept: "text/event-stream",
     },
     body: JSON.stringify({
+      // dontdie modification: extra fields first, so the fields below always win.
+      ...Object.fromEntries(Object.entries(options.extraBody ?? {}).filter(([key]) => !PROTECTED_FIELDS.has(key))),
       model: options.model,
       input: input.map((message) => ({ role: message.role, content: message.content })),
       ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
@@ -48,6 +54,14 @@ export async function streamResponse(
   let eventSize = 0;
   let completed = false;
   let text = "";
+  // dontdie modification: URL citations from annotation events.
+  const citations = new Map<string, ResponseCitation>();
+  const addCitation = (annotation: unknown) => {
+    if (!isObject(annotation) || annotation.type !== "url_citation" || typeof annotation.url !== "string") return;
+    if (!citations.has(annotation.url)) {
+      citations.set(annotation.url, { url: annotation.url, ...(typeof annotation.title === "string" ? { title: annotation.title } : {}) });
+    }
+  };
 
   const dispatch = () => {
     const data = dataLines.join("\n");
@@ -67,8 +81,18 @@ export async function streamResponse(
       throw apiError(result, response.status, requestId);
     } else if (event.type === "response.incomplete") {
       throw new ChatGPTError("response_incomplete", "ChatGPT stopped before completing the response. You can keep the partial text or try again.", true);
+    } else if (event.type === "response.output_text.annotation.added") {
+      addCitation(event.annotation);
     } else if (event.type === "response.completed") {
       completed = true;
+      // dontdie modification: also read annotations from the final output.
+      const output = isObject(event.response) && Array.isArray(event.response.output) ? event.response.output : [];
+      for (const item of output) {
+        if (!isObject(item) || !Array.isArray(item.content)) continue;
+        for (const part of item.content) {
+          if (isObject(part) && Array.isArray(part.annotations)) part.annotations.forEach(addCitation);
+        }
+      }
     }
   };
 
@@ -107,7 +131,7 @@ export async function streamResponse(
       if (completed) break;
     }
     if (!completed) throw new ChatGPTError("stream_interrupted", "The response ended before completion. You can keep the partial text or try again.", true);
-    return { text };
+    return { text, citations: [...citations.values()] };
   } catch (error) {
     if (signal.aborted) throw new ChatGPTError("cancelled", "The response was cancelled.");
     if (error instanceof ChatGPTError) throw error;

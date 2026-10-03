@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" width="400" height="520">
+  <defs>
+    <radialGradient id="body" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#f3efe7"/>
+      <stop offset="1" stop-color="#d6cebf"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#bfe3ff" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#bfe3ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="200" cy="492" rx="118" ry="16" fill="#000" opacity=".16"/>
+  <g transform="rotate(0 200 490)"><g>
+    <animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="3.2s" repeatCount="indefinite"/>
+    <circle cx="200" cy="330" r="150" fill="url(#body)"/><circle cx="200" cy="330" r="150" fill="none" stroke="#1d2230" stroke-opacity=".10" stroke-width="3"/>
+    
+    <g transform="translate(150 312)"><g>
+      <clipPath id="eye1503123038"><ellipse rx="30" ry="38"/></clipPath>
+      <g clip-path="url(#eye1503123038)">
+        <ellipse rx="30" ry="38" fill="#fff"/>
+        <g transform="translate(0 2)">
+          <circle r="15" fill="#1d2230"/>
+          <circle cx="5.25" cy="-6" r="4.8" fill="#fff"/>
+        </g>
+        
+      </g>
+      <ellipse rx="30" ry="38" fill="none" stroke="#1d2230" stroke-opacity=".18" stroke-width="2"/>
+      <animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1 1;1 .08;1 1" keyTimes="0;.93;.965;1" dur="4.6s" repeatCount="indefinite"/>
+    </g></g>
+    <g transform="translate(250 312)"><g>
+      <clipPath id="eye2503123038"><ellipse rx="30" ry="38"/></clipPath>
+      <g clip-path="url(#eye2503123038)">
+        <ellipse rx="30" ry="38" fill="#fff"/>
+        <g transform="translate(0 2)">
+          <circle r="15" fill="#1d2230"/>
+          <circle cx="5.25" cy="-6" r="4.8" fill="#fff"/>
+        </g>
+        
+      </g>
+      <ellipse rx="30" ry="38" fill="none" stroke="#1d2230" stroke-opacity=".18" stroke-width="2"/>
+      <animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1 1;1 .08;1 1" keyTimes="0;.93;.965;1" dur="4.6s" repeatCount="indefinite"/>
+    </g></g>
+    <ellipse cx="200" cy="390" rx="13" ry="6" fill="#3a2d33"><animate attributeName="ry" values="3;9;4;8;3" dur=".55s" repeatCount="indefinite"/></ellipse>
+  </g></g>
+</svg>

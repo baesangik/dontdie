@@ -7,6 +7,7 @@ import { defaultConfig, PROVIDER_DEFAULTS } from "../src/config.js";
 import { RealClock } from "../src/core/clock.js";
 import { EventLog } from "../src/core/eventlog.js";
 import { Harness } from "../src/harness.js";
+import { MemoryStore } from "../src/memory/store.js";
 import { Providers } from "../src/providers/index.js";
 import { FakeProvider } from "../src/providers/fake.js";
 import { startServer, validateConfig } from "../src/server/http.js";
@@ -20,10 +21,10 @@ before(async () => {
   config.layers = structuredClone(PROVIDER_DEFAULTS.fake);
   config.pace = 20;
   const clock = new RealClock();
-  harness = new Harness({ clock, log: new EventLog(null, clock), config, character: emptyCharacter(), providers: new Providers(() => config, "/nonexistent", { fake: new FakeProvider() }) });
+  harness = new Harness({ clock, log: new EventLog(null, clock), config, character: emptyCharacter(), memory: new MemoryStore(":memory:"), providers: new Providers(() => config, "/nonexistent", { fake: new FakeProvider() }) });
   const server = await startServer(harness, 0);
   port = (server.address() as AddressInfo).port;
-  close = () => { harness.attention.dispose(); server.close(); };
+  close = () => { harness.stop(); server.close(); };
 });
 after(() => close());
 
@@ -65,7 +66,17 @@ test("정적 파일은 web/ 밖으로 나갈 수 없다", async () => {
   assert.equal((await call("GET", "/")).status, 200);
   assert.equal((await call("GET", "/../package.json")).status, 404);
   assert.equal((await call("GET", "/%2e%2e/package.json")).status, 404);
-  assert.equal((await call("GET", "/fonts/Galmuri11.woff2")).status, 200);
+  assert.equal((await call("GET", "/%E0%A4%A")).status, 400, "깨진 인코딩");
+});
+
+test("기억과 마음 상태를 볼 수 있다 (관전 모드)", async () => {
+  const memory = await call("GET", "/api/memory?kind=self");
+  assert.equal(memory.status, 200);
+  assert.ok(Array.isArray(JSON.parse(memory.body).memories));
+  assert.equal((await call("GET", "/api/memory?kind=nope")).status, 400);
+  const mind = JSON.parse((await call("GET", "/api/mind")).body);
+  assert.ok(typeof mind.energy === "number");
+  assert.ok(mind.usage.talker.limit > 0);
 });
 
 test("설정 검증", () => {
@@ -80,4 +91,14 @@ test("설정 검증", () => {
   assert.equal(next.layers.talker.model, "claude-sonnet-5");
   assert.equal(next.layers.router.model, "gpt-6-luna", "건드리지 않은 계층은 그대로");
   assert.equal(base.language, "ko", "원본은 바뀌지 않는다");
+  assert.throws(() => validateConfig(base, { assistantism: "loud" }));
+  assert.throws(() => validateConfig(base, { life: { quietHours: "late" } }));
+  assert.throws(() => validateConfig(base, { budget: { daily: { reasoner: -1 } } }));
+  assert.throws(() => validateConfig(base, { spritePack: "../evil" }));
+  const life = validateConfig(base, { life: { enabled: false, quietHours: "01:00-07:30" }, budget: { daily: { reasoner: 10 } }, assistantism: "trim" });
+  assert.equal(life.life.enabled, false);
+  assert.equal(life.life.quietHours, "01:00-07:30");
+  assert.equal(life.budget.daily.reasoner, 10);
+  assert.equal(life.budget.daily.talker, base.budget.daily.talker);
+  assert.equal(life.assistantism, "trim");
 });

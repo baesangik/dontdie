@@ -33,6 +33,8 @@ export interface AttentionChange {
   awayMs?: number;
   /** 비운 시간이 greetAfterMin 이상이면 귀가 인사 후보 */
   greet?: boolean;
+  /** away에서 돌아왔을 때만: 창을 숨기거나 떠난 시각 ("그동안 뭐 했는지"의 시작) */
+  leftAt?: number;
 }
 
 export class Attention {
@@ -42,6 +44,8 @@ export class Attention {
   #idleTimer: Cancel | null = null;
   #awayTimer: Cancel | null = null;
   #awaySince: number | null = null;
+  /** 창이 숨겨지거나 포커스를 잃은 시각 */
+  #hiddenAt: number | null = null;
 
   constructor(
     private readonly clock: Clock,
@@ -59,16 +63,19 @@ export class Attention {
         if (this.#visible && this.#focused) {
           this.#cancelAway();
           if (this.#state === "away") this.#to("around", "return");
+          this.#hiddenAt = null;
         }
         return;
       case "hidden":
       case "blur":
         if (signal === "hidden") this.#visible = false; else this.#focused = false;
+        this.#hiddenAt ??= this.clock.now();
         this.#scheduleAway();
         return;
       case "chat_focus":
         this.#visible = this.#focused = true;
         this.#cancelAway();
+        if (this.#state !== "away") this.#hiddenAt = null;
         if (this.#state === "away" || this.#state === "around") {
           this.#to("attending", "chat_focus");
           this.#arm(this.config.attendIdleSec * 1000, "around", "attend_idle");
@@ -122,7 +129,9 @@ export class Attention {
     if (from === "away" && this.#awaySince !== null) {
       change.awayMs = this.clock.now() - this.#awaySince;
       change.greet = change.awayMs >= this.config.greetAfterMin * 60_000;
+      change.leftAt = Math.min(this.#hiddenAt ?? this.#awaySince, this.#awaySince);
       this.#awaySince = null;
+      this.#hiddenAt = null;
     }
     if (next === "away") this.#awaySince = this.clock.now();
     this.#state = next;

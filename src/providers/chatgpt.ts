@@ -10,6 +10,9 @@ export class ChatGPTProvider implements Provider {
   readonly client: ChatGPTClient;
   /** 플랜 경로가 reasoning effort를 거부하면 이후로는 보내지 않는다. */
   #effortUnsupported = false;
+  /** 웹 검색이나 구조화 출력이 거부되면 이후로는 빼고 보낸다. */
+  #searchUnsupported = false;
+  #jsonUnsupported = false;
 
   constructor(dataDir: string) {
     this.client = createChatGPT({
@@ -50,29 +53,48 @@ export class ChatGPTProvider implements Provider {
   }
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {
-    const call = (effort: string | undefined) => this.client.streamResponse({
-      model: request.model,
-      instructions: request.instructions,
-      input: request.messages.map((message) => ({ role: message.role, content: message.content })),
-      ...(effort ? { reasoningEffort: effort } : {}),
-      ...(request.signal ? { signal: request.signal } : {}),
-      ...(request.onDelta ? { onDelta: request.onDelta } : {}),
-    });
-    const effort = this.#effortUnsupported ? undefined : request.effort;
-    try {
-      return await call(effort);
-    } catch (error) {
-      if (effort && error instanceof ChatGPTError && rejectsReasoning(error)) {
-        this.#effortUnsupported = true;
-        try { return await call(undefined); } catch (retryError) { throw convert(retryError); }
+    const options = { effort: !this.#effortUnsupported, search: Boolean(request.webSearch) && !this.#searchUnsupported, json: Boolean(request.json) && !this.#jsonUnsupported };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = await this.client.streamResponse({
+          model: request.model,
+          instructions: request.instructions,
+          input: request.messages.map((message) => ({ role: message.role, content: message.content })),
+          ...(options.effort && request.effort ? { reasoningEffort: request.effort } : {}),
+          extraBody: {
+            ...(options.search ? { tools: [{ type: "web_search" }] } : {}),
+            ...(options.json && request.json ? { text: { format: { type: "json_schema", name: request.json.name, strict: true, schema: request.json.schema } } } : {}),
+          },
+          ...(request.signal ? { signal: request.signal } : {}),
+          ...(request.onDelta ? { onDelta: request.onDelta } : {}),
+        });
+        return {
+          text: result.text,
+          ...(result.citations.length ? { citations: result.citations } : {}),
+          ...(request.webSearch && !options.search ? { webSearchUnavailable: true } : {}),
+        };
+      } catch (error) {
+        // 플랜 경로가 거부한 기능을 하나씩 끄고 다시 시도한다.
+        if (attempt < 3 && error instanceof ChatGPTError && error.status === 400) {
+          if (options.effort && request.effort && rejects(error, "reasoning")) { this.#effortUnsupported = true; options.effort = false; continue; }
+          if (options.search && rejects(error, "tools")) { this.#searchUnsupported = true; options.search = false; continue; }
+          if (options.json && rejects(error, "text")) { this.#jsonUnsupported = true; options.json = false; continue; }
+          // 무엇을 거부했는지 알 수 없으면 덜 중요한 것부터 끈다.
+          if (!error.param && error.code === "subscription_sharing_unsupported_capability") {
+            if (options.search) { this.#searchUnsupported = true; options.search = false; continue; }
+            if (options.json) { this.#jsonUnsupported = true; options.json = false; continue; }
+            if (options.effort && request.effort) { this.#effortUnsupported = true; options.effort = false; continue; }
+          }
+        }
+        throw convert(error);
       }
-      throw convert(error);
     }
   }
 }
 
-function rejectsReasoning(error: ChatGPTError) {
-  return error.status === 400 && (error.param?.startsWith("reasoning") === true || error.code === "subscription_sharing_unsupported_capability");
+function rejects(error: ChatGPTError, param: string) {
+  if (error.param) return error.param.startsWith(param);
+  return error.code === "subscription_sharing_unsupported_capability" && error.message.toLowerCase().includes(param === "text" ? "format" : param);
 }
 
 function describe(session: SessionState): ProviderStatus {

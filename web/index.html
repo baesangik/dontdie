@@ -2,62 +2,152 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>dontdie</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="who">
-      <span id="name" class="name">???</span>
-      <span id="day" class="chip"></span>
+  <main id="stage" class="stage" data-tod="day">
+    <!-- 배경: 시간대에 따라 색이 바뀌는 방 (CSS 변수) -->
+    <svg class="bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--wall-top)"/>
+          <stop offset="1" style="stop-color: var(--wall-bottom)"/>
+        </linearGradient>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--sky-top)"/>
+          <stop offset="1" style="stop-color: var(--sky-bottom)"/>
+        </linearGradient>
+        <radialGradient id="lampGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0" stop-color="#ffd59a" stop-opacity=".55"/>
+          <stop offset="1" stop-color="#ffd59a" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="1600" height="900" fill="url(#wall)"/>
+      <g transform="translate(980 150)">
+        <rect width="420" height="330" rx="10" fill="url(#sky)"/>
+        <g class="stars" fill="#fff">
+          <circle cx="60" cy="50" r="2"/><circle cx="180" cy="90" r="1.6"/><circle cx="300" cy="40" r="2.2"/><circle cx="360" cy="140" r="1.4"/><circle cx="110" cy="170" r="1.5"/>
+        </g>
+        <circle class="moon" cx="320" cy="90" r="26" fill="#f6f1d8"/>
+        <rect width="420" height="330" rx="10" fill="none" stroke="var(--frame)" stroke-width="14"/>
+        <line x1="210" y1="0" x2="210" y2="330" stroke="var(--frame)" stroke-width="10"/>
+        <line x1="0" y1="165" x2="420" y2="165" stroke="var(--frame)" stroke-width="10"/>
+        <path d="M -30 -20 H 70 Q 40 180 60 360 H -30 Z" fill="var(--curtain)"/>
+        <path d="M 450 -20 H 350 Q 380 180 360 360 H 450 Z" fill="var(--curtain)"/>
+      </g>
+      <rect y="690" width="1600" height="210" fill="var(--floor)"/>
+      <rect y="684" width="1600" height="10" fill="var(--trim)"/>
+      <g transform="translate(150 300)" fill="var(--furniture)">
+        <rect width="300" height="16" rx="4"/>
+        <rect y="150" width="300" height="16" rx="4"/>
+        <rect x="20" y="-70" width="34" height="70" rx="3" opacity=".7"/><rect x="60" y="-56" width="26" height="56" rx="3" opacity=".55"/><rect x="92" y="-78" width="30" height="78" rx="3" opacity=".8"/>
+        <rect x="200" y="96" width="70" height="54" rx="8" opacity=".6"/>
+      </g>
+      <g transform="translate(1460 560)">
+        <rect x="-30" y="60" width="60" height="70" rx="10" fill="var(--furniture)"/>
+        <path d="M 0 60 C -50 20 -40 -30 -10 -60 C 0 -10 10 -10 10 60 Z" fill="var(--plant)"/>
+        <path d="M 0 60 C 40 10 50 -40 20 -70 C 10 -20 0 0 -6 60 Z" fill="var(--plant)" opacity=".8"/>
+      </g>
+      <g class="lamp" transform="translate(560 560)">
+        <ellipse cx="0" cy="-40" rx="260" ry="200" fill="url(#lampGlow)"/>
+        <rect x="-4" y="-30" width="8" height="160" fill="var(--furniture)"/>
+        <path d="M -50 -30 L 50 -30 L 30 -90 L -30 -90 Z" fill="#f3d9a6"/>
+        <ellipse cx="0" cy="130" rx="46" ry="10" fill="var(--furniture)"/>
+      </g>
+    </svg>
+
+    <div id="spriteLayer" class="sprite-layer">
+      <img id="spriteA" class="sprite" alt="">
+      <img id="spriteB" class="sprite" alt="">
     </div>
-    <div class="right">
-      <span id="conn" class="chip"></span>
-      <button id="settingsBtn" class="pixel-btn small" type="button" data-i18n="settings">설정</button>
-    </div>
-  </header>
 
-  <main class="layout">
-    <section class="stage">
-      <div class="room-frame">
-        <canvas id="room" aria-label="방"></canvas>
-        <button id="adoptBtn" class="pixel-btn adopt" type="button" hidden data-i18n="adopt">데려오기</button>
+    <header class="hud">
+      <div class="hud-left">
+        <div class="who"><strong id="name">???</strong> <span id="day" class="day"></span></div>
+        <div id="status" class="status" hidden></div>
       </div>
-      <div id="status" class="status-line"></div>
-      <div id="sysbadge" class="sysbadge" role="alert" hidden></div>
+      <nav class="hud-right">
+        <button id="logBtn" class="hud-btn" type="button" data-i18n="log">로그</button>
+        <button id="mindBtn" class="hud-btn" type="button" data-i18n="mind">속마음</button>
+        <button id="settingsBtn" class="hud-btn" type="button" data-i18n="settings">설정</button>
+      </nav>
+    </header>
 
-      <div id="login" class="login-card" hidden>
-        <p id="loginText"></p>
-        <button id="loginBtn" class="pixel-btn" type="button">Sign in with ChatGPT</button>
+    <section class="dialogue">
+      <div id="you" class="you" hidden></div>
+      <div class="box">
+        <div id="plate" class="plate">???</div>
+        <div id="lines" class="lines" aria-live="polite"></div>
+        <div id="notice" class="notice" role="alert" hidden>
+          <span id="noticeText"></span>
+          <button id="noticeBtn" class="pill" type="button" hidden></button>
+        </div>
+        <form id="composer" class="composer" autocomplete="off">
+          <input id="input" maxlength="2000" enterkeyhint="send">
+          <button id="sendBtn" class="send" type="submit" aria-label="send">↵</button>
+        </form>
       </div>
-
-      <div id="chat" class="chat" aria-live="polite"></div>
-      <form id="composer" class="composer" autocomplete="off">
-        <input id="input" maxlength="2000" disabled>
-        <button id="sendBtn" class="pixel-btn" type="submit" disabled data-i18n="send">보내기</button>
-      </form>
     </section>
 
-    <aside class="side">
-      <div class="side-head">
-        <h2 data-i18n="feed">속마음</h2>
-        <label class="toggle"><input id="thoughtToggle" type="checkbox"> <span data-i18n="show">보기</span></label>
+    <!-- 이벤트 CG (첫 만남) -->
+    <section id="cg" class="cg" hidden>
+      <img id="cgImage" class="cg-image" alt="">
+      <div class="cg-box">
+        <p id="cgText" class="cg-text"></p>
+        <div id="cgChoices" class="choices"></div>
+        <span id="cgNext" class="cg-next" aria-hidden="true">▼</span>
       </div>
-      <ol id="feed" class="feed"></ol>
-    </aside>
+    </section>
+    <div id="flash" class="flash"></div>
   </main>
 
-  <dialog id="settings" class="settings">
+  <!-- 관전 모드: 내부에서 일어나는 일 -->
+  <aside id="mind" class="drawer" hidden>
+    <header class="drawer-head">
+      <nav class="tabs" role="tablist">
+        <button class="tab" data-tab="feed" type="button" data-i18n="tabFeed">속마음</button>
+        <button class="tab" data-tab="memory" type="button" data-i18n="tabMemory">기억</button>
+        <button class="tab" data-tab="diary" type="button" data-i18n="tabDiary">일기</button>
+        <button class="tab" data-tab="state" type="button" data-i18n="tabState">상태</button>
+      </nav>
+      <button id="mindClose" class="icon-btn" type="button" aria-label="close">✕</button>
+    </header>
+    <section class="pane" data-pane="feed">
+      <div class="pane-tools">
+        <label class="check"><input id="thoughtToggle" type="checkbox"> <span data-i18n="showThoughts">속생각</span></label>
+        <label class="check"><input id="callToggle" type="checkbox"> <span data-i18n="showCalls">호출</span></label>
+      </div>
+      <ol id="feed" class="feed"></ol>
+    </section>
+    <section class="pane" data-pane="memory" hidden>
+      <div id="memoryKinds" class="chips"></div>
+      <ul id="memoryList" class="memory-list"></ul>
+    </section>
+    <section class="pane" data-pane="diary" hidden>
+      <div id="diaryList" class="diary-list"></div>
+    </section>
+    <section class="pane" data-pane="state" hidden>
+      <div id="stateView" class="state-view"></div>
+    </section>
+  </aside>
+
+  <dialog id="log" class="sheet">
+    <header class="sheet-head"><h2 data-i18n="log">로그</h2><button class="icon-btn" type="button" data-close aria-label="close">✕</button></header>
+    <ol id="logList" class="log-list"></ol>
+  </dialog>
+
+  <dialog id="settings" class="sheet">
     <form method="dialog" id="settingsForm">
-      <h2 data-i18n="settings">설정</h2>
+      <header class="sheet-head"><h2 data-i18n="settings">설정</h2></header>
 
       <fieldset>
         <legend data-i18n="account">ChatGPT 계정</legend>
         <p id="accountText" class="muted"></p>
         <div class="row">
-          <button id="settingsLogin" class="pixel-btn small" type="button">Sign in with ChatGPT</button>
-          <button id="settingsLogout" class="pixel-btn small ghost" type="button" data-i18n="logout">로그아웃</button>
+          <button id="settingsLogin" class="pill" type="button">Sign in with ChatGPT</button>
+          <button id="settingsLogout" class="pill ghost" type="button" data-i18n="logout">로그아웃</button>
         </div>
       </fieldset>
 
@@ -74,14 +164,33 @@
       </fieldset>
 
       <fieldset>
+        <legend data-i18n="life">생활</legend>
+        <label class="row"><input id="lifeEnabled" type="checkbox"> <span data-i18n="lifeEnabled">혼자 생활하기 (활동, 잠, 일기)</span></label>
+        <label class="row"><span data-i18n="quietHours">자는 시간</span> <input id="quietHours" placeholder="02:00-08:00" pattern="\d{1,2}:\d{2}-\d{1,2}:\d{2}"></label>
+        <label class="row"><span data-i18n="assistantism">비서 말투</span>
+          <select id="assistantism">
+            <option value="regenerate" data-i18n="regenerate">다시 쓰게 함</option>
+            <option value="trim" data-i18n="trim">다듬기만</option>
+            <option value="off" data-i18n="off">끔</option>
+          </select>
+        </label>
+        <div class="row budget">
+          <span data-i18n="budget">하루 호출 상한</span>
+          <label>R <input id="budgetRouter" type="number" min="0" max="100000"></label>
+          <label>T <input id="budgetTalker" type="number" min="0" max="100000"></label>
+          <label>Re <input id="budgetReasoner" type="number" min="0" max="100000"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend data-i18n="pace">속도</legend>
-        <label class="row"><input id="pace" type="range" min="0.5" max="5" step="0.5"> <span id="paceValue"></span></label>
+        <label class="row"><input id="pace" type="range" min="0.5" max="10" step="0.5"> <span id="paceValue"></span></label>
         <label class="row"><span data-i18n="localUrl">로컬 모델 주소</span> <input id="localUrl" type="url"></label>
       </fieldset>
 
       <div class="row end">
-        <button value="cancel" class="pixel-btn small ghost" data-i18n="cancel">취소</button>
-        <button id="saveSettings" value="save" class="pixel-btn small" data-i18n="save">저장</button>
+        <button value="cancel" class="pill ghost" data-i18n="cancel">취소</button>
+        <button id="saveSettings" value="save" class="pill" data-i18n="save">저장</button>
       </div>
     </form>
   </dialog>

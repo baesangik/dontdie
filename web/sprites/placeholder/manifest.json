@@ -1,0 +1,25 @@
+{
+  "name": "placeholder",
+  "description": "원에 눈 단 땜빵 스프라이트. 진짜 스탠딩 일러로 바꿔 끼우면 된다.",
+  "aspect": 0.7692307692307693,
+  "sprites": {
+    "neutral": "neutral.svg",
+    "look": "look.svg",
+    "listen": "listen.svg",
+    "talk": "talk.svg",
+    "think": "think.svg",
+    "happy": "happy.svg",
+    "sad": "sad.svg",
+    "surprised": "surprised.svg",
+    "embarrassed": "embarrassed.svg",
+    "annoyed": "annoyed.svg",
+    "sleepy": "sleepy.svg",
+    "sleep": "sleep.svg",
+    "search": "search.svg",
+    "blank": "blank.svg"
+  },
+  "fallback": "neutral",
+  "cg": {
+    "first_meeting": "../../cg/first-meeting.svg"
+  }
+}

@@ -4,18 +4,21 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
-import { LANGUAGES, LAYERS, PROVIDER_DEFAULTS, ROOT, type Config, type LayerConfig } from "../config.js";
+import { ASSISTANTISM_MODES, LANGUAGES, LAYERS, PROVIDER_DEFAULTS, ROOT, type Config, type LayerConfig } from "../config.js";
 import { dayCount } from "../character/state.js";
 import type { AttentionSignal } from "../core/attention.js";
 import type { Harness } from "../harness.js";
+import { LINES } from "../mind/lines.js";
+import { MEMORY_KINDS, strength, type MemoryKind } from "../memory/store.js";
 import { PROVIDER_IDS } from "../providers/index.js";
 import { asProviderError, type ProviderStatus } from "../providers/types.js";
 
 const WEB_DIR = join(ROOT, "web");
-const FONT_DIR = join(ROOT, "node_modules", "galmuri", "dist");
+/** UI로 보내는 이벤트. 속마음 패널(관전 모드)이 내부 메커니즘을 전부 보여준다. */
 const DISPLAY_TYPES = [
-  "adopt", "user_message", "seen", "thinking", "typing", "say", "thought", "attention",
+  "adopt", "user_message", "seen", "thinking", "typing", "say", "thought", "attention", "face",
   "name_given", "name_refused", "address_set", "address_refused", "error", "llm_call", "login", "config_change",
+  "router", "ladder", "memory", "consult", "revise", "speech", "filler", "assistantism", "activity", "sleep", "diary", "busy", "budget", "proactive",
 ];
 const SIGNALS: AttentionSignal[] = ["visible", "hidden", "focus", "blur", "chat_focus", "typing", "sent"];
 const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"];
@@ -23,8 +26,11 @@ const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".webp": "image/webp",
+  ".jpg": "image/jpeg",
   ".woff2": "font/woff2",
 };
 
@@ -63,9 +69,28 @@ export function startServer(harness: Harness, port: number): Promise<Server> {
       providerDefaults: PROVIDER_DEFAULTS,
       attention: harness.attention.state,
       busy: harness.busy,
+      mind: mind(),
       signingIn,
       providers: await providerStatuses(),
       events: harness.log.recent(300, DISPLAY_TYPES),
+    };
+  }
+
+  /** 지금 마음 상태 요약 (상태 줄, 관전 모드) */
+  function mind() {
+    const now = harness.clock.now();
+    const language = harness.config.language;
+    const current = harness.life.current;
+    return {
+      mood: harness.mood.describe(now, language),
+      moodValues: harness.mood.current(now),
+      energy: harness.budget.energy(),
+      energyLabel: harness.budget.describe(language),
+      asleep: harness.life.asleep,
+      activity: current ? { kind: current.kind, label: current.label, sprite: current.sprite, paused: current.pausedAt !== null, endsAt: current.endsAt, progress: harness.life.describe(LINES[language].activityProgress) } : null,
+      jobs: harness.jobs.map((job) => ({ id: job.id, kind: job.task.kind, query: job.task.kind === "lookup" ? job.task.query : job.task.question })),
+      queue: harness.speech.top(now).slice(0, 5).map((item) => ({ text: item.text, m: Math.round(item.m * 100) / 100, source: item.source })),
+      usage: Object.fromEntries(LAYERS.map((layer) => [layer, { used: harness.budget.used(layer), limit: harness.budget.limit(layer) }])),
     };
   }
 
@@ -82,6 +107,15 @@ export function startServer(harness: Harness, port: number): Promise<Server> {
       return SSE;
     },
     "POST /api/adopt": () => ({ adopted: harness.adopt() }),
+    "GET /api/mind": () => mind(),
+    "GET /api/memory": (_req, _res, url) => {
+      const kind = url.searchParams.get("kind");
+      const forgotten = url.searchParams.get("forgotten") === "1";
+      if (kind && !MEMORY_KINDS.includes(kind as MemoryKind)) throw new HttpError(400, "unknown kind");
+      const now = harness.clock.now();
+      const memories = harness.memory.list({ ...(kind ? { kinds: [kind as MemoryKind] } : {}), ...(forgotten ? { onlyForgotten: true } : {}), limit: 300 });
+      return { memories: memories.map((memory) => ({ ...memory, strength: Math.round(strength(memory, now) * 100) / 100 })) };
+    },
     "POST /api/message": async (req) => {
       const body = await readJson(req) as { text?: unknown };
       if (typeof body.text !== "string" || !body.text.trim()) throw new HttpError(400, "text is required");
@@ -186,7 +220,10 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function serveStatic(pathname: string, res: ServerResponse) {
-  const [base, relative] = pathname.startsWith("/fonts/") ? [FONT_DIR, pathname.slice("/fonts/".length)] : [WEB_DIR, pathname === "/" ? "index.html" : pathname.slice(1)];
+  const base = WEB_DIR;
+  let relative: string;
+  try { relative = pathname === "/" ? "index.html" : decodeURIComponent(pathname.slice(1)); }
+  catch { throw new HttpError(400, "bad path"); }
   const file = normalize(join(base, relative));
   if (!file.startsWith(base + sep) || !existsSync(file) || !statSync(file).isFile() || !MIME[extname(file)]) throw new HttpError(404, "not found");
   res.writeHead(200, { "content-type": MIME[extname(file)]!, "cache-control": "no-cache" });
@@ -220,6 +257,36 @@ export function validateConfig(current: Config, input: unknown): Config {
   if (patch.showThoughts !== undefined) {
     if (typeof patch.showThoughts !== "boolean") throw new HttpError(400, "showThoughts must be boolean");
     next.showThoughts = patch.showThoughts;
+  }
+  if (patch.assistantism !== undefined) {
+    if (!ASSISTANTISM_MODES.includes(patch.assistantism as never)) throw new HttpError(400, "invalid assistantism");
+    next.assistantism = patch.assistantism as Config["assistantism"];
+  }
+  if (patch.life !== undefined) {
+    const life = patch.life as Record<string, unknown>;
+    if (typeof life !== "object" || life === null) throw new HttpError(400, "life must be an object");
+    if (life.enabled !== undefined) {
+      if (typeof life.enabled !== "boolean") throw new HttpError(400, "life.enabled must be boolean");
+      next.life.enabled = life.enabled;
+    }
+    if (life.quietHours !== undefined) {
+      if (typeof life.quietHours !== "string" || !/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(life.quietHours)) throw new HttpError(400, "quietHours must be HH:MM-HH:MM");
+      next.life.quietHours = life.quietHours;
+    }
+  }
+  if (patch.budget !== undefined) {
+    const daily = (patch.budget as { daily?: Record<string, unknown> })?.daily;
+    if (typeof daily !== "object" || daily === null) throw new HttpError(400, "budget.daily must be an object");
+    for (const name of LAYERS) {
+      const value = daily[name];
+      if (value === undefined) continue;
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100_000) throw new HttpError(400, `invalid budget for ${name}`);
+      next.budget.daily[name] = value;
+    }
+  }
+  if (patch.spritePack !== undefined) {
+    if (typeof patch.spritePack !== "string" || !/^[a-z0-9_-]{1,40}$/.test(patch.spritePack)) throw new HttpError(400, "invalid spritePack");
+    next.spritePack = patch.spritePack;
   }
   if (patch.local !== undefined) {
     const baseUrl = (patch.local as { baseUrl?: unknown })?.baseUrl;

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" width="400" height="520">
+  <defs>
+    <radialGradient id="body" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#f3efe7"/>
+      <stop offset="1" stop-color="#d6cebf"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#bfe3ff" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#bfe3ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="200" cy="492" rx="118" ry="16" fill="#000" opacity=".16"/>
+  <g transform="rotate(0 200 490)"><g>
+    <animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="3.2s" repeatCount="indefinite"/>
+    <circle cx="200" cy="330" r="150" fill="url(#body)"/><circle cx="200" cy="330" r="150" fill="none" stroke="#1d2230" stroke-opacity=".10" stroke-width="3"/>
+    
+    <g transform="translate(150 312)"><g>
+      <clipPath id="eye1503123546"><ellipse rx="35" ry="46"/></clipPath>
+      <g clip-path="url(#eye1503123546)">
+        <ellipse rx="35" ry="46" fill="#fff"/>
+        <g transform="translate(0 0)">
+          <circle r="9" fill="#1d2230"/>
+          <circle cx="3.15" cy="-3.6" r="2.88" fill="#fff"/>
+        </g>
+        
+      </g>
+      <ellipse rx="35" ry="46" fill="none" stroke="#1d2230" stroke-opacity=".18" stroke-width="2"/>
+      
+    </g></g>
+    <g transform="translate(250 312)"><g>
+      <clipPath id="eye2503123546"><ellipse rx="35" ry="46"/></clipPath>
+      <g clip-path="url(#eye2503123546)">
+        <ellipse rx="35" ry="46" fill="#fff"/>
+        <g transform="translate(0 0)">
+          <circle r="9" fill="#1d2230"/>
+          <circle cx="3.15" cy="-3.6" r="2.88" fill="#fff"/>
+        </g>
+        
+      </g>
+      <ellipse rx="35" ry="46" fill="none" stroke="#1d2230" stroke-opacity=".18" stroke-width="2"/>
+      
+    </g></g>
+    <g transform="translate(332 176)"><rect x="-7" y="-46" width="14" height="40" rx="7" fill="#1d2230"/><circle cy="10" r="8" fill="#1d2230"/></g><ellipse cx="200" cy="392" rx="9" ry="11" fill="#3a2d33"/>
+  </g></g>
+</svg>

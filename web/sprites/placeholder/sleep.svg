@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" width="400" height="520">
+  <defs>
+    <radialGradient id="body" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#f3efe7"/>
+      <stop offset="1" stop-color="#d6cebf"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#bfe3ff" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#bfe3ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="200" cy="492" rx="132" ry="16" fill="#000" opacity=".16"/>
+  <g transform="rotate(0 200 490)"><g>
+    <animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="4s" repeatCount="indefinite"/>
+    <ellipse cx="200" cy="348" rx="160" ry="138" fill="url(#body)"/><ellipse cx="200" cy="348" rx="160" ry="138" fill="none" stroke="#1d2230" stroke-opacity=".10" stroke-width="3"/>
+    <path d="M 124 316 Q 150 344 176 316" fill="none" stroke="#1d2230" stroke-width="7" stroke-linecap="round"/><path d="M 224 316 Q 250 344 276 316" fill="none" stroke="#1d2230" stroke-width="7" stroke-linecap="round"/>
+    <g font-family="Georgia, serif" font-weight="700" fill="#1d2230" opacity=".7">
+  <text x="306" y="210" font-size="22">Z<animate attributeName="opacity" values="0;1;0" dur="2.4s" begin="0s" repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 6;0 -6" dur="2.4s" begin="0s" repeatCount="indefinite"/></text><text x="328" y="180" font-size="30">Z<animate attributeName="opacity" values="0;1;0" dur="2.4s" begin="0.6s" repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 6;0 -6" dur="2.4s" begin="0.6s" repeatCount="indefinite"/></text><text x="350" y="150" font-size="38">Z<animate attributeName="opacity" values="0;1;0" dur="2.4s" begin="1.2s" repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 6;0 -6" dur="2.4s" begin="1.2s" repeatCount="indefinite"/></text></g>
+  </g></g>
+</svg>
