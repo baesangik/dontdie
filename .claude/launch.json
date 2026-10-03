@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dontdie-fake",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["DONTDIE_FAKE=1", "DONTDIE_DATA=data-demo", "DONTDIE_PORT=7790", "npx", "tsx", "src/main.ts"],
+      "port": 7790,
+      "url": "http://127.0.0.1:7790"
+    },
+    {
+      "name": "dontdie",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 7717,
+      "url": "http://127.0.0.1:7717"
+    }
+  ]
+}

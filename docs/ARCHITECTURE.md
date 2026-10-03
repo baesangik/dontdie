@@ -191,17 +191,27 @@ SQLite. 종류별로 테이블을 나누고 수명을 다르게 준다.
 
 ## 7. 활동 시스템
 
+혼자 하는 일은 전부 **행동 모듈**로 꽂는다. 콘텐츠 소스(뉴스, 위키, 커뮤니티 …)도 행동이다. 소스 하나 = 모듈 하나.
+
 ```ts
-interface Activity {
-  kind: ActivityKind;      // browse_news | wiki_hole | community_lurk | diary | tidy_memory | zone_out | nap | ...
-  topic?: string;
-  plannedMinutes: number;
-  ticks: number[];         // 실제 실행 시각 (드문드문, 지터)
-  sprite: string;          // 화면에 띄울 이미지
-  interruptibility: number;// 0..1, 말 걸었을 때 바로 반응할 확률
-  energyCost: number;
+// src/actions/types.ts
+interface ActionModule {
+  kind: string;                         // "browse_news", "wiki_hole", "zone_out" …
+  label: Record<Language, string>;      // 상태 줄 ("뉴스 보는 중")
+  sprite: string;                       // UI 포즈/소품 id
+  minutes: [min, max];                  // 한 번 할 때의 시간
+  ticks: [min, max];                    // 실제 호출 틱 수. 0이면 연출만
+  interruptibility: number;             // 0..1
+  energyCost: number;                   // 0..1 (낮잠은 음수 = 회복)
+  available?(ctx): boolean | Promise<boolean>;
+  start(ctx): ActionSession;            // tick(ctx, i) → { observation?, topic?, followUp?, done? }
 }
 ```
+
+- 스케줄러(M3)가 활동 블록을 잡으면, 계획 시간 동안 `tick()`을 드문드문 몇 번만 부른다.
+- `observation`(관찰 한 줄)이 오면 Talker가 그걸로 속생각을 만든다. 없으면 그 틱은 호출 0회다.
+- 모듈은 `fetch`를 직접 쓰지 않는다. 하네스가 주는 읽기 전용 `fetchText`(허용 목록)만 쓴다.
+- `ActionRegistry`에 등록한다. 지금은 `zone_out`, `nap`만 있다.
 
 - 30분 활동이어도 틱은 4~6번뿐이다. 각 틱은 Reasoner 조회 1회 + Talker 속생각 1회 정도다.
 - 틱 사이에는 스프라이트와 상태 줄만 보여준다. 예: `뉴스 보는 중 (12/30분)`.
@@ -220,16 +230,21 @@ interface Activity {
 ## 9. Provider
 
 ```ts
+// src/providers/types.ts
 interface Provider {
-  id: "chatgpt" | "openai" | "anthropic" | "local";
-  listModels(): Promise<ModelInfo[]>;
-  stream(req: GenRequest): AsyncIterable<GenChunk>;
+  id: "chatgpt" | "openai" | "anthropic" | "local" | "fake";
+  status(): Promise<ProviderStatus>;
+  listModels(signal?): Promise<ModelInfo[]>;
+  generate(req: { model, instructions, messages, effort?, onDelta? }): Promise<{ text }>;
 }
 ```
 
-- **ChatGPT**: Sign in with ChatGPT(`@siwc/local`), OAuth + PKCE, Responses API. `stream: true`, `store: false`만 지원하므로 **대화 상태는 전부 하네스가 관리한다** (어차피 그렇게 할 것이다).
+- **ChatGPT**: Sign in with ChatGPT, OAuth + PKCE, Responses API. `stream: true`, `store: false`만 지원하므로 **대화 상태는 전부 하네스가 관리한다**.
+  - 공식 SDK `@siwc/local`은 npm에 없어서 [vendor/siwc-local](../vendor/siwc-local)에 소스를 넣었다 (DevKit 비상업 라이선스). reasoning effort를 넘기도록 두 파일만 고쳤고, 고친 파일에는 표시를 남겼다. 플랜 경로가 effort를 거부하면 그 뒤로는 빼고 보낸다.
+  - 로그인 정보는 OS 키링(Linux는 Secret Service)에 둔 AES-256 키로 암호화해서 `data/chatgpt/`에 저장한다. 평문 대체는 없다.
+- **fake**: 테스트와 오프라인 데모용. `DONTDIE_FAKE=1 npm start`로 실제 모델 없이 UI를 둘러볼 수 있다.
 - **OpenAI API**: API 키, Responses API.
-- **Anthropic**: 공식 SDK(`@anthropic-ai/sdk`), API 키. 구독 OAuth는 쓰지 않는다.
+- **Anthropic**: 공식 SDK(`@anthropic-ai/sdk`), API 키. 구독 OAuth는 쓰지 않는다. Opus 5 계열은 정책상 거절될 때 서버가 다른 모델로 이어 답하도록 server-side fallback을 켠다.
 - **로컬**: OpenAI 호환 엔드포인트 (Ollama, llama.cpp, vLLM).
 
 **설정 예시 (기본값)**
@@ -255,6 +270,11 @@ quietHours: "02:00-09:00"
 기본 모델은 설정 파일의 기본값일 뿐이다. 첫 실행 때 로그인한 계정에서 모델 목록을 조회하고, 기본 모델이 없으면 고르게 한다.
 
 ## 10. UI (v0, 로컬 웹)
+
+빌드 단계 없는 정적 파일(`web/`)이다. 방은 캔버스에 192×120 픽셀로 직접 그린다 (`web/room.js`). 폰트는 Galmuri11.
+분위기 목표는 **고능하고 엄청 발전한 다마고치**, 친구모아아파트 같은 픽셀 방이다.
+
+포즈: `outside`(비 오는 밤 현관 앞) · `idle`(두리번, 어슬렁) · `looking`(쳐다봄, 눈이 커지고 `!`) · `listening`(사용자가 타이핑 중) · `thinking`(생각 구름) · `talking`(입 움직임) · `dozing`(사용자가 자리를 비우면 졺)
 
 ```
 ┌──────────────────────────────┬──────────────────────┐
@@ -289,20 +309,25 @@ interface Channel {
 - v0: 로컬 웹 UI (`visibilitychange`, focus/blur, 입력창 클릭과 포커스, keydown)
 - M6: 디스코드 (멘션과 DM은 `attending`, 타이핑 이벤트, 온라인/자리비움 상태). 급하지 않다.
 
-## 12. 디렉터리 구조 (예정)
+## 12. 디렉터리 구조
 
 ```
 dontdie/
   src/
-    core/         # clock, event bus, event log, state, scheduler, budget
-    layers/       # router, talker, reasoner
-    providers/    # chatgpt, openai, anthropic, local, fake
-    channels/     # web (v0), discord (M6)
-    memory/       # sqlite store, retrieval, decay, consolidation
-    mechanisms/   # first-meeting, attention, unknown-ladder, reflex-revise, inner-thoughts, activities, pacing, assistant-ism
-    ui/           # 로컬 웹 UI
-  prompts/        # 언어별 존재 규칙(charter.<lang>.md), 계층별 프롬프트
-  assets/sprites/ # 활동별 이미지
-  scenarios/      # 시나리오 테스트 (배속 시계 + fake provider)
+    main.ts         # 진입점: 설정 로드, 하네스, 로컬 서버
+    harness.ts      # 이벤트 → Talker → 페이싱 → 주의 상태
+    config.ts       # 설정, 계층별 기본 모델
+    core/           # clock(실시간/배속/수동), eventlog, attention, pacing
+    layers/         # talker (router, reasoner는 M1)
+    character/      # 캐릭터 상태 (이름, 호칭) — M2에서 기억으로
+    actions/        # 행동 모듈 인터페이스와 레지스트리
+    providers/      # chatgpt, openai, anthropic, local, fake, 키링 암호화
+    server/         # 로컬 HTTP + SSE
+  web/              # UI (index.html, app.js, room.js, style.css)
+  prompts/          # 언어별 존재 규칙과 출력 형식
+  vendor/siwc-local # Sign in with ChatGPT 로컬 SDK (비상업 라이선스)
+  test/             # node:test, 수동 시계 + fake provider로 시나리오 검증
   docs/
 ```
+
+이후 추가 예정: `memory/`(M2), `channels/`(M6), `mechanisms/`의 개별 모듈들.

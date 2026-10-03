@@ -11,3 +11,6 @@ data/
 .dontdie/
 
 .DS_Store
+
+# 데모용 데이터 (DONTDIE_FAKE)
+data-*/

@@ -1,0 +1,30 @@
+{
+  "name": "dontdie",
+  "version": "0.0.1",
+  "private": true,
+  "description": "자기 생활을 하다가 필요할 때 말을 거는 AI 하네스 (codename)",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@napi-rs/keyring": "^2.1.0",
+    "galmuri": "^2.40.3",
+    "jose": "^6.2.12",
+    "proper-lockfile": "^4.1.2",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^7.0.2"
+  }
+}

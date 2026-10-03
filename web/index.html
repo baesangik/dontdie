@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dontdie</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="who">
+      <span id="name" class="name">???</span>
+      <span id="day" class="chip"></span>
+    </div>
+    <div class="right">
+      <span id="conn" class="chip"></span>
+      <button id="settingsBtn" class="pixel-btn small" type="button" data-i18n="settings">설정</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="room-frame">
+        <canvas id="room" aria-label="방"></canvas>
+        <button id="adoptBtn" class="pixel-btn adopt" type="button" hidden data-i18n="adopt">데려오기</button>
+      </div>
+      <div id="status" class="status-line"></div>
+      <div id="sysbadge" class="sysbadge" role="alert" hidden></div>
+
+      <div id="login" class="login-card" hidden>
+        <p id="loginText"></p>
+        <button id="loginBtn" class="pixel-btn" type="button">Sign in with ChatGPT</button>
+      </div>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+      <form id="composer" class="composer" autocomplete="off">
+        <input id="input" maxlength="2000" disabled>
+        <button id="sendBtn" class="pixel-btn" type="submit" disabled data-i18n="send">보내기</button>
+      </form>
+    </section>
+
+    <aside class="side">
+      <div class="side-head">
+        <h2 data-i18n="feed">속마음</h2>
+        <label class="toggle"><input id="thoughtToggle" type="checkbox"> <span data-i18n="show">보기</span></label>
+      </div>
+      <ol id="feed" class="feed"></ol>
+    </aside>
+  </main>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog" id="settingsForm">
+      <h2 data-i18n="settings">설정</h2>
+
+      <fieldset>
+        <legend data-i18n="account">ChatGPT 계정</legend>
+        <p id="accountText" class="muted"></p>
+        <div class="row">
+          <button id="settingsLogin" class="pixel-btn small" type="button">Sign in with ChatGPT</button>
+          <button id="settingsLogout" class="pixel-btn small ghost" type="button" data-i18n="logout">로그아웃</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend data-i18n="language">언어</legend>
+        <select id="language">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+        </select>
+      </fieldset>
+
+      <fieldset id="layers">
+        <legend data-i18n="models">모델</legend>
+      </fieldset>
+
+      <fieldset>
+        <legend data-i18n="pace">속도</legend>
+        <label class="row"><input id="pace" type="range" min="0.5" max="5" step="0.5"> <span id="paceValue"></span></label>
+        <label class="row"><span data-i18n="localUrl">로컬 모델 주소</span> <input id="localUrl" type="url"></label>
+      </fieldset>
+
+      <div class="row end">
+        <button value="cancel" class="pixel-btn small ghost" data-i18n="cancel">취소</button>
+        <button id="saveSettings" value="save" class="pixel-btn small" data-i18n="save">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

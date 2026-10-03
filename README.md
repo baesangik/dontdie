@@ -19,7 +19,26 @@ git clone → ChatGPT로 로그인 → 집 앞에 앉아 있던 걸 주워 옴
 
 ## 상태
 
-**계획 단계.** 아직 코드는 없습니다.
+**M0 (뼈대) 구현.** ChatGPT 로그인, Talker 대화, 첫 만남(이름·호칭), 주의 상태(쳐다보기 → 하던 일로), 픽셀 방 UI까지 됩니다.
+Router, Reasoner, 기억, 혼자 생활하기는 다음 마일스톤입니다. → [docs/PLAN.md](docs/PLAN.md)
+
+## 실행
+
+Node.js 22.12 이상이 필요합니다.
+
+```bash
+git clone https://github.com/baesangik/dontdie.git
+cd dontdie
+npm install
+npm start
+```
+
+터미널에 뜨는 주소(`http://127.0.0.1:7717`)를 브라우저로 열고 **Sign in with ChatGPT**를 누르면 됩니다.
+
+- ChatGPT 로그인 정보는 OS 키링에 둔 키로 암호화해서 `data/`에 저장합니다. Linux는 Secret Service(gnome-keyring, KWallet)가 필요합니다.
+- 실제 모델 없이 화면만 둘러보려면: `DONTDIE_FAKE=1 npm start`
+- 다른 Provider: 설정에서 계층별로 고릅니다. OpenAI API는 `OPENAI_API_KEY`, Claude는 `ANTHROPIC_API_KEY` 환경 변수를 씁니다.
+- 테스트: `npm test`, 타입 검사: `npm run typecheck`
 
 ## 핵심 아이디어
 
@@ -69,5 +88,7 @@ git clone → ChatGPT로 로그인 → 집 앞에 앉아 있던 걸 주워 옴
 ## 라이선스
 
 [PolyForm Noncommercial 1.0.0](LICENSE). **비상업 목적이면 자유롭게** 쓰고, 고치고, 배포할 수 있습니다. 상업적으로 쓰려면 별도로 문의해 주세요.
+
+[vendor/siwc-local](vendor/siwc-local)은 OpenAI의 Sign-in with ChatGPT DevKit 소스이며 [자체 비상업 라이선스](vendor/siwc-local/LICENSE)를 따릅니다. UI 폰트는 [Galmuri](https://github.com/quiple/galmuri) (SIL OFL 1.1)입니다.
 
 비상업 조건이 있으므로 OSI 기준의 "오픈소스"는 아니고, 소스 공개(source-available) 프로젝트입니다.
